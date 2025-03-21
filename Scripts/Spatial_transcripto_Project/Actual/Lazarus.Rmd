@@ -1,0 +1,973 @@
+---
+title: "Lazarus"
+author: "J Dutel"
+date: "2025-03-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(hdf5r)
+library(ggfortify)
+library(harmony)
+library(sctransform)
+library(viridis)
+library(stringr)
+library(viridisLite)
+library(patchwork)
+
+dir_path <- "/mnt/datadisk/Jordan/Data/"
+
+Squam_tum_patients <- c("MpBC3", "MpBC8")
+Epi_tum_patients <- c("MpBC1", "MpBC2", "MpBC5", "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16")
+Mes_tum_patients <- c("MpBC1", "MpBC8")
+Mes_norm_patients <- c("MpBC1", "MpBC2", "MpBC5", "MpBC6", "MpBC9", "MpBC11", "MpBC14", "MpBC15")
+Spindle_tum_patients <- c("MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC10", "MpBC11", "MpBC14")
+Osteo_tum_patients <- c("MpBC4")
+Chondro_tum_patients <- c("MpBC9", "MpBC13", "MpBC15", "MpBC16")
+
+# Assigner des couleurs aux groupes en respectant la proximité biologique
+annotation_colors <- c(
+  "Chondroid tumor" = "#8B4513",          # Marron (cartilage)
+  "Epithelial tumor" = "#FF4500",         # Orange vif
+  "Epithelial/Mesenchymal tumor" = "#9400D3", # Violet profond (intermédiaire)
+  "Mesenchymal tumor" = "#1E90FF",        # Bleu intense
+  "Normal epithelium" = "#32CD32",        # Vert clair
+  "Normal mesenchyme" = "#00CED1",        # Turquoise
+  "Osteosarcomatoid tumor" = "black",   # Brun terreux
+  "Pleiomorphic tumor" = "#B22222",       # Rouge bordeaux
+  "Spindle cell tumor" = "#4682B4",       # Bleu acier
+  "Squamous tumor" = "grey"            # Rouge tomate
+)
+
+colors_old <- c(
+  "Chondroid tumour cells" = "#E6194B",
+  "Classical chondrosarcoma cells" = "#3CB44B",
+  "Epithelial tumor cells" = "#FFE119",
+  "Mesenchymal tumor cells" = "#4363D8",
+  "Mixoid chondrosarcoma cells" =  "#F58231",
+  "Mixoid matrix-enriched spindle+ spindle" = "#911EB4",
+  "MMP9- spindle" = "#46F0F0",
+  "MMP9+ spindle" = "#F032E6",
+  "Normal epithelium" = "#D2F53C",
+  "Normal fibrous tissue" = "#FABEBE",
+  "NST cells" = "#008080",
+  "Osteosarcomatoid tumour" = "#E6BEFF",
+  "Spindle cell tumour" = "#AA6E28",
+  "Spindle surrounded by NST" = "#FFFAC8",
+  "Squamous cell tumour" = "#800000", "#AaffC3", "#808000", "#000080"
+)
+
+cluster_colors <- c(
+  "#8B4513",          # Marron (cartilage)
+  "#FFE119",
+  "#FF4500",         # Orange vif
+  "#9400D3", # Violet profond (intermédiaire)
+  "#1E90FF",        # Bleu intense
+  "#32CD32",        # Vert clair
+  "#46F0F0",        # Turquoise
+  "black",   # Brun terreux
+  "#B22222",       # Rouge bordeaux
+  "#4682B4",       # Bleu acier
+  "grey",
+  "#F032E6")            # Rouge tomate
+
+cluster_colors_v2 <- c(
+  "Chondro_tum" = "#8B4513",          # Marron (cartilage)
+  "Epi_tum" = "#FF4500",         # Orange vif
+  "Mes_tum" = "#1E90FF",        # Bleu intense
+  "Epi_tum" = "#32CD32",        # Vert clair
+  "Mes_norm" = "#00CED1",        # Turquoise
+  "Osteo_tum" = "black",   # Brun terreux
+  "Spindle_tum" = "#4682B4",       # Bleu acier
+  "Squam_tum" = "grey"            # Rouge tomate
+)
+
+shape_patients = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+```
+
+# Loading
+```{r warning=FALSE}
+# Nombre de features à conserver
+# features_number <- 2000
+
+# Liste des échantillons à traiter (excluant MpBC12)
+samples <- paste0("MpBC", c(1:11, 13:16))
+
+# Boucle pour charger et traiter chaque échantillon
+for (sample in samples) {
+  print(paste("📥 Chargement des données pour", sample, "..."))
+  
+  # Définir le chemin des fichiers
+  data_path <- paste0(dir_path, "Visium/", sample)
+  
+  # Déterminer le batch en fonction du numéro d'échantillon
+  sample_number <- as.numeric(gsub("MpBC", "", sample))
+  
+  ## Numero batch
+  if (sample_number >= 1 & sample_number <= 8) {batch <- "batch1"} 
+  else if (sample_number >= 9 & sample_number <= 16 & sample_number != 12) {batch <- "batch2"}
+  
+  ## Numero slide
+  if (sample_number == 1 | sample_number == 2) {slide <- "slide1"} 
+  else if (sample_number == 3 | sample_number == 4) {slide <- "slide2"}
+  else if (sample_number == 5 | sample_number == 6) {slide <- "slide3"}
+  else if (sample_number == 7 | sample_number == 8) {slide <- "slide4"}
+  else if (sample_number == 9 | sample_number == 10) {slide <- "slide5"}
+  else if (sample_number == 11 | sample_number == 12) {slide <- "slide6"}
+  else if (sample_number == 13 | sample_number == 14) {slide <- "slide7"}
+  else if (sample_number == 15 | sample_number == 16) {slide <- "slide8"}
+  
+  # Charger les données 10X Spatial
+  obj <- Load10X_Spatial(data.dir = data_path, 
+                         filename = "filtered_feature_bc_matrix.h5", 
+                         assay = "Spatial", slice = paste0("Slice_", sample)) %>% 
+    AddMetaData(metadata = batch, col.name = 'Seq_batch') %>% 
+    AddMetaData(metadata = slide, col.name = 'Visium_slide')
+  
+  # Charger les annotations
+  annotation_new <- read.csv(paste0(data_path, "/Annotations_new_with_unlabels.csv")) %>%
+    mutate(Barcode = paste0(sample, "_", Barcode))
+  
+  annotation_old <- read.csv(paste0(data_path, "/Annotations_old_with_unlabels.csv")) %>%
+    mutate(Barcode = paste0(sample, "_", Barcode)) %>%
+    rename("Barcode_new" = Barcode)
+  
+  # Ajouter les annotations à meta.data
+  obj@meta.data <- obj@meta.data %>%
+    cbind(annotation_new, annotation_old) %>%
+    select(-Barcode_new) %>%
+    rename("Patient" = orig.ident) %>%
+    mutate(Patient = sample)
+
+  # On enlève certains types cellulaires (difficilement caractérisables)
+  obj <- obj %>%
+    subset(nCount_Spatial > 0 &
+           Annotations_old != "Mixed cells" &
+           Annotations_new != "Pleiomorphic tumor" &
+           Annotations_old != "NST surrounded by spindle" &
+           Annotations_old != "" & Annotations_new != "" &
+           Annotations_old != "Necrosis" & Annotations_new != "Necrosis")
+
+  # Normaliser les données 
+  ## --- NormalizeData ---
+  # obj <- obj %>% NormalizeData(assay = "Spatial",
+  #                              normalization.method = "LogNormalize",
+  #                              scale.factor = 5000) %>%
+  # FindVariableFeatures(selection.method = "vst",
+  #                      nfeatures = 750) %>%
+  # ScaleData(do.scale = TRUE,
+  #           do.center = TRUE,
+  #           scale.max = 50,
+  #           model.use = "linear")
+  ## --- SCTransform ---
+  # obj <- obj %>% SCTransform(vst.flavor = "v2",
+  #                            assay = "Spatial", 
+  #                            do.scale = FALSE, 
+  #                            do.center = TRUE, 
+  #                            verbose = TRUE,
+  #                            return.only.var.genes = TRUE,
+  #                            variable.features.n = features_number,
+  #                            n_genes = features_number)
+  
+  
+  # Sauvegarder l'objet dans l'environnement sous le nom "MpBCX"
+  assign(sample, obj)
+  
+  print(paste("✅ Données chargées pour", sample))
+
+}
+
+print("🎉 Tous les échantillons ont été traités avec succès !")
+```
+
+# Merging
+```{r warning=FALSE}
+# On merge nos objet en un seul
+obj_list <- c(MpBC2, MpBC3, MpBC4, MpBC5, MpBC6, MpBC7, MpBC8, 
+              MpBC9, MpBC10, MpBC11, MpBC13, MpBC14, MpBC15, MpBC16)
+names_obj_list <- c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", 
+                    "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16")
+
+all_data_init <- merge(MpBC1, 
+                       y = obj_list, 
+                       add.cell.ids = names_obj_list,
+                       project = "MpBC_Visium",
+                       merge.data = TRUE)
+
+# Convertir les données dans orig.ident en facteur
+all_data_init$Patient <- factor(all_data_init$Patient, 
+                                levels = c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", 
+                                           "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16"))
+all_data_init$Seq_batch <- factor(all_data_init$Seq_batch, 
+                                  levels = c("batch1", "batch2"))
+all_data_init$Visium_slide <- factor(all_data_init$Visium_slide, 
+                                     levels = c("slide1", "slide2", "slide3", "slide4", 
+                                                "slide5", "slide6", "slide7", "slide8"))
+
+# VariableFeatures(all_data_init[["SCT"]]) <- rownames(all_data_init[["SCT"]]@scale.data)
+
+# all_data_init <- JoinLayers(all_data_init)
+
+VlnPlot(all_data_init, 
+        features = c("nFeature_Spatial", "nCount_Spatial"), 
+        ncol = 2, 
+        group.by = "Patient",
+        pt.size = 0.1,
+        alpha = 0.35)
+# ggsave("VlnPlot_MpBC_Patient.png", width = 12, height = 6, dpi = 300)
+
+VlnPlot(all_data_init, 
+        features = c("nFeature_Spatial", "nCount_Spatial"), 
+        ncol = 2, 
+        group.by = "Annotations_new",
+        pt.size = 0.1,
+        alpha = 0.35)
+# ggsave("VlnPlot_MpBC_Annotations_new.png", width = 12, height = 6, dpi = 300)
+
+```
+
+# Normalization
+```{r}
+all_data_init <- all_data_init %>%
+  NormalizeData(assay = "Spatial",
+                      normalization.method = "LogNormalize",
+                      scale.factor = 5000) %>% 
+        FindVariableFeatures(selection.method = "vst",
+                             nfeatures = 750) %>% 
+        ScaleData(do.scale = TRUE,
+                  do.center = TRUE,
+                  scale.max = 10,
+                  model.use = "linear")
+```
+
+# PCA
+```{r}
+all_data <- RunPCA(all_data_init,
+                        assay = "Spatial",
+                        npcs = 50)
+
+ElbowPlot(all_data, 
+          ndims = 50) + ggtitle(paste0("ElbowPlot - ND(750-75-40-5000)"))
+```
+
+```{r}
+DimPlot(all_data,
+        pt.size = 0.75,
+        reduction = "pca",
+        group.by = "Patient") +
+    scale_shape_manual(values = shape_patients) +
+    # scale_color_manual(values = annotation_colors) +
+    ggtitle(paste0("PCA - MpBC"))
+
+ggsave(filename = "PCA_MpBC.png", width = 12, height = 6, dpi = 300)
+```
+
+# Harmony
+```{r}
+
+theta_param <- c(2,2,2)
+sigma_param <- 0.2
+nclust_param <- 150
+  
+all_data <- all_data %>% 
+  RunHarmony(c("Patient", "Seq_batch", "Visium_slide"),
+                 theta = c(2, 2, 2),
+                 lambda = 1,
+                 sigma = 0.2,
+                 nclust = 150,
+                 max_iter = 50,
+                 verbose = TRUE)
+
+
+features_number <- all_data@commands[["FindVariableFeatures.Spatial"]]@params[["nfeatures"]]
+
+    
+plot9 <- DimPlot(all_data,
+        pt.size = 0.25,
+        reduction = "harmony",
+        group.by = "Patient") +
+    scale_shape_manual(values = shape_patients) +
+    ggtitle(paste0("All Patients - Normalized Data (" , features_number, " Genes) - Harmony"))
+
+
+ggsave(filename = paste0("All-Patients_NormalizedData(",features_number, "Genes)_Harmony(222)_", sigma_param, "_", nclust_param ,"_Patient.png"), plot = plot9, width = 12, height = 6, dpi = 300)
+
+plot8 <- DimPlot(all_data,
+        pt.size = 0.25,
+        reduction = "harmony",
+        group.by = "Seq_batch") +
+    scale_shape_manual(values = shape_patients) +
+    ggtitle(paste0("All Patients - Normalized Data (" ,features_number, " Genes) - Harmony"))
+
+
+ggsave(filename = paste0("All-Patients_NormalizedData(",features_number, "Genes)_Harmony(222)_", sigma_param, "_", nclust_param ,"_Seq_batch.png"), plot = plot8, width = 12, height = 6, dpi = 300)
+
+plot7 <- DimPlot(all_data,
+        pt.size = 0.25,
+        reduction = "harmony",
+        group.by = "Visium_slide") +
+    scale_shape_manual(values = shape_patients) +
+    ggtitle(paste0("All Patients - Normalized Data (" ,features_number, " Genes) - Harmony"))
+
+
+ggsave(filename = paste0("All-Patients_NormalizedData(",features_number, "Genes)_Harmony(222)_", sigma_param, "_", nclust_param ,"_Visium_slide.png"), plot = plot7, width = 12, height = 6, dpi = 300)
+
+plot1_all <- DimPlot(all_data,
+        pt.size = 1,
+        reduction = "harmony",
+        group.by = "Annotations_new",
+        shape.by = 'Patient') + 
+        scale_color_manual(values = annotation_colors) +
+        scale_shape_manual(values = shape_patients) +
+        ggtitle(paste0("All Patients - Normalized Data (" , features_number, " Genes) - Harmony - new_annot"))
+
+png(paste0("All-patients_NormalizedData(",features_number, "Genes)_HARMONY_new-annot_(222)_", sigma_param, "_", nclust_param ,".png"), width = 6000, height = 3000, res = 300)
+print(plot1_all)
+dev.off()
+```
+
+# UMAP
+```{r}
+all_data <- all_data %>% 
+  RunUMAP(assay = "Spatial",
+          seed.use = 42,
+                reduction = "harmony",
+                dims = 1:20,
+                n.neighbors = 75, 
+                min.dist = 0.0001,
+                spread = 2,
+                set.op.mix.ratio = 1,
+                metric = "cosine") # euclidean et cosine c'est pas mal
+
+neighbours_number_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["n.neighbors"]]
+n_components_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["dims"]] %>% length()
+min_dist_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["min.dist"]]
+set_op_mix_ratio_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["set.op.mix.ratio"]]
+spread_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["spread"]]
+scale_factor_all <- all_data@commands[["NormalizeData.Spatial"]]@params[["scale.factor"]]
+metric_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["metric"]]
+
+plot2 <- DimPlot(all_data,
+        pt.size = 0.25,
+        reduction = "umap",
+        group.by = "Annotations_new") +
+    scale_color_manual(values = annotation_colors) +
+    scale_shape_manual(values = shape_patients) +
+    # ggtitle(paste0("All Patients - Normalized Data (" ,features_number, " Genes) - UMAP"))
+    ggtitle(paste0("UMAP - MpBC patients"))
+
+ggsave(filename = paste0("Opti_All-Patients_NormalizedData(",features_number, "_", neighbours_number_all, "_", n_components_all , "_", min_dist_all , "_", set_op_mix_ratio_all, "_", spread_all , "_", metric_all, "_Genes).pdf"), plot = plot2, width = 12, height = 6, dpi = 300)
+
+plot3 <- DimPlot(all_data,
+        pt.size = 0.25,
+        reduction = "umap",
+        group.by = "Annotations_old") +
+    scale_color_manual(values = colors_old) +
+    scale_shape_manual(values = shape_patients) +
+    # ggtitle(paste0("All Patients - Normalized Data (" ,features_number, " Genes) - UMAP - Old"))
+    ggtitle(paste0("UMAP - MpBC patients"))
+
+
+ggsave(filename = paste0("Opti_All-Patients_NormalizedData(",features_number, "_", neighbours_number_all, "_", n_components_all , "_", min_dist_all , "_", set_op_mix_ratio_all, "_", spread_all , "_", metric_all, "_Genes)_old.pdf"), plot = plot3, width = 12, height = 6, dpi = 300)
+```
+
+
+```{r}
+# --- New annot ---
+# Plot UMAP avec les shape des patients --- New annot ---
+
+## UMAP totale
+    p3 <- DimPlot(all_data,
+          pt.size = 1,
+          reduction = "umap",
+          group.by = "Annotations_new",
+          shape.by = "Patient") + 
+          scale_color_manual(values = annotation_colors) +
+          scale_shape_manual(values = shape_patients) +
+          ggtitle(paste0("All Patients - Normalized Data (" ,features_number, " Genes) - UMAP (" , neighbours_number_all, " Neighbours, ", n_components_all, " composantes " , scale_factor_all, " scale) - new_annot"))
+
+    ggsave(filename = paste0(neighbours_number_all, " neighrbours ", n_components_all, " component ", features_number, " features ", min_dist_all, " mindist ", set_op_mix_ratio_all, " opmix ", spread_all, " spread ", scale_factor_all, " scale ", "patient_shape_new_annot.png"), plot = p3, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+
+## Plot pour tous les patients --- New annot ---
+
+
+  
+# Extraire la liste des patients
+patients_list <- unique(all_data$Patient)
+
+# Boucle pour générer un plot par patient et le sauvegarder
+for (patient in patients_list) {
+  
+  # Filtrer les données pour un patient spécifique
+  patient_data <- subset(all_data, subset = (Patient == patient))
+  
+  # Créer le plot pour ce patient
+  plot_patient <- DimPlot(patient_data,
+                          pt.size = 1,
+                          reduction = "umap",
+                          group.by = "Annotations_new") +
+                  scale_color_manual(values = annotation_colors) +
+                  scale_shape_manual(values = shape_patients) +
+                  ggtitle(paste0("All Patients (", patient,") - Normalized Data (" ,features_number, " Genes) - UMAP - new_annot"))
+  
+  # Sauvegarder l'image pour ce patient
+  ggsave(filename = paste0("All-Patients-(", patient,")_NormalizedData-(" ,features_number, " Genes)_UMAP_new-annot.png"),
+         plot = plot_patient, width = 12, height = 6, dpi = 300)
+  print(plot_patient)
+  print(paste("Plot saved for Patient:", patient))
+}
+```
+
+
+
+```{r}
+# --- Old annot ---
+# Plot UMAP avec les shape des patients --- Old annot ---
+
+## UMAP totale
+    p4 <- DimPlot(all_data,
+          pt.size = 1,
+          reduction = "umap",
+          group.by = "Annotations_old",
+          shape.by = "Patient") + 
+          scale_color_manual(values = colors_old) +
+          scale_shape_manual(values = shape_patients) +
+          ggtitle(paste0("All Patients - Normalized Data (" ,features_number, " Genes) - UMAP (" , neighbours_number_all, " Neighbours, ", n_components_all, " composantes " , scale_factor_all, " scale) - old_annot"))
+
+    ggsave(filename = paste0(neighbours_number_all, " neighrbours ", n_components_all, " component ", features_number, " features ", min_dist_all, " mindist ", set_op_mix_ratio_all, " opmix ", spread_all, " spread ", scale_factor_all, " scale ", "patient_shape_old_annot.png"), plot = p4, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+
+
+# Plot pour tous les patients --- Old annot ---
+
+# Extraire la liste des patients
+patients_list <- unique(all_data$Patient)
+
+# Boucle pour générer un plot par patient et le sauvegarder
+for (patient in patients_list) {
+  
+  # Filtrer les données pour un patient spécifique
+  patient_data <- subset(all_data, subset = (Patient == patient))
+  
+  # Créer le plot pour ce patient
+  plot_patient <- DimPlot(patient_data,
+                          pt.size = 1,
+                          reduction = "umap",
+                          group.by = "Annotations_old") +
+                  scale_color_manual(values = colors_old) +
+                  scale_shape_manual(values = shape_patients) +
+                  ggtitle(paste0("All Patients (", patient,") - Normalized Data (" ,features_number, " Genes) - UMAP - old_annot"))
+  
+  # Sauvegarder l'image pour ce patient
+  ggsave(filename = paste0("All-Patients-(", patient,")_NormalizedData-(" ,features_number, " Genes)_UMAP_old-annot.png"),
+         plot = plot_patient, width = 12, height = 6, dpi = 300)
+  print(plot_patient)
+  print(paste("Plot saved for Patient:", patient))
+}
+```
+
+# Clustering
+
+## FindNeighbors
+```{r}
+all_data <- FindNeighbors(all_data, 
+                          reduction = "harmony", 
+                          dims = 1:50)
+
+```
+
+## FindClusters
+```{r}
+# Trouver les clusters
+for (i in c(0.15)) {
+  for (a in c(2)) {
+all_data <- FindClusters(all_data, 
+                         resolution = i,
+                         algorithm = a)
+
+# Visu
+p <- DimPlot(all_data, 
+             reduction = "umap", 
+             group.by = "seurat_clusters", 
+             label = TRUE) + 
+          # scale_color_manual(values = cluster_colors) +
+          ggtitle(paste0("Cluster resolution: ", i, " - MultiLouvain Algorithm"))
+print(p)
+
+ggsave(paste0("cluster_resolution_", i, "_algo_", a, "_no_rename.png"), plot = p, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+  }
+}
+
+
+# clustree(all_data)
+
+```
+
+```{r}
+# ## Renommer les clusters
+# all_data@meta.data <- all_data@meta.data %>%
+#   mutate(seurat_clusters = case_when(
+#     seurat_clusters == 0 ~ "Spindle_tum",
+#     seurat_clusters == 1 ~ "Épi_tum",
+#     seurat_clusters == 2 ~ "Chondro_tum",
+#     seurat_clusters == 3 ~ "Mes/Squamous_tum",
+#     seurat_clusters == 4 ~ "Mix_spindle_tum_mes",
+#     seurat_clusters == 5 ~ "Out",
+#     seurat_clusters == 6 ~ "Mixoid_spindle_tum_high",
+#     seurat_clusters == 7 ~ "Épi_high",
+#     seurat_clusters == 8 ~ "Chondro_right",
+#     seurat_clusters == 9 ~ "Mix_chondro",
+#     seurat_clusters == 10 ~ "Spindle_NST",
+#     seurat_clusters == 11 ~ "Mix_spindle_tum_low"
+#   ))
+# 
+# p <- DimPlot(all_data, 
+#              reduction = "umap", 
+#              group.by = "seurat_clusters", 
+#              label = TRUE,
+#              repel = TRUE) + 
+#           scale_color_manual(values = cluster_colors) +
+#           ggtitle(paste0("Cluster resolution: ", i, " - MultiLouvain Algorithm"))
+# print(p)
+# 
+# ggsave(paste0("cluster_resolution_", i, "_algo_", a, "_rename.png"), plot = p, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+```
+
+## Intersection
+Intersecting annotations_clusters
+```{r}
+# Intersection des annotations et clusters
+  
+all_data@meta.data <- all_data@meta.data %>%
+  mutate(seurat_clusters_rename = case_when(
+    
+    # Condition pour cluster Squamous
+    ((seurat_clusters %in% c(3)) & Annotations_new == "Squamous tumor") ~ "Squam_tum",
+    
+    # Condition pour cluster Mesenchymal tumor
+    ((seurat_clusters %in% c(3)) & Annotations_new == "Mesenchymal tumor") ~ "Mes_tum",
+    
+    # Condition pour cluster Épithelial
+    ((seurat_clusters %in% c(2, 4, 17, 15, 7, 11, 12)) & Annotations_new == "Epithelial tumor") ~ "Epi_tum",
+    
+    # Condition pour cluster Spindle
+    ((seurat_clusters %in% c(0, 1, 8, 6, 13, 16)) & Annotations_new == "Spindle cell tumor") ~ "Spindle_tum",
+    
+    # Condition pour cluster Chondro
+    ((seurat_clusters %in% c(5, 9, 10)) & Annotations_new == "Chondroid tumor") ~ "Chondro_tum",
+    
+    # Condition pour cluster Osteosarcomatoid
+    ((seurat_clusters %in% c(0)) & Annotations_new == "Osteosarcomatoid tumor") ~ "Osteo_tum",
+    
+    # Condition pour cluster Mesenchymal normale
+    (Annotations_new == "Normal mesenchyme") ~ "Mes_norm"
+))
+
+# ON enlève les cellules qui n'ont pas de cluster assignés dans seurat_clusters_rename (c-a-d les cellules dont les annotations ne correspondent pas aux clusters trouvés)
+MpBC_obj <- all_data %>% subset(subset = (seurat_clusters_rename != ""))
+
+# Visu
+p <- DimPlot(MpBC_obj, 
+             reduction = "umap", 
+             group.by = "seurat_clusters_rename", 
+             label = FALSE,
+             repel = TRUE,
+             pt.size = 0.25) + 
+     scale_color_manual(values = cluster_colors_v2) +
+      # annotate("text", 
+              # x = 9, y = -9.5, 
+              # label = "
+              # Nombre de cellules totales avant intersection: 51536, 
+              # Nombre de cellules enlevées: 9670,
+              # Nombre de cellules restantes après intersection: 41866, 
+              # Pourcentage de cellules enlevées: 18.76%", 
+              # size = 2, 
+              # color = "black", 
+              # hjust = 0) +
+     ggtitle(paste0("MultiLouvain Clustering - Intersection with expert annotations")) 
+
+
+print(p)
+
+ggsave(paste0("MultiLouvain Clustering - Intersection with expert annotations.pdf"), plot = p, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+```
+
+```{r}
+# Nombre de cellules enlevées
+n_removed_cells <- nrow(all_data@meta.data) - nrow(MpBC_obj@meta.data)
+total_cells_before <- nrow(all_data@meta.data)
+total_cells_after <- nrow(MpBC_obj@meta.data)
+print(paste("Nombre de cellules totales avant intersection:", total_cells_before))
+print(paste("Nombre de cellules enlevées:", n_removed_cells))
+print(paste("Nombre de cellules restantes après intersection:", total_cells_after))
+print(paste("Pourcentage de cellules enlevées:", (n_removed_cells / total_cells_before) * 100, "%"))
+```
+
+##Test visu % sample per cluster
+```{r}
+# # CHECK CLUSTER COMPOSITION
+# # Check how much samples are represented in each of the clusters
+# cluster_count <- as.data.frame(table(subset(sc_gsm_integrated, seurat_clusters == as.character(0))@meta.data$Patient)) # set the structure
+# names(cluster_count)[1] <- "GSM_ID"
+# names(cluster_count)[2] <- "ToRemove"
+# cluster_count$ToRemove <- 0
+# for (i in levels(sc_gsm_integrated$seurat_clusters)) {
+#   print(paste("cluster ", i, sep = ""))
+#   tmp_df <- as.data.frame(table(subset(sc_gsm_integrated, seurat_clusters == as.character(i))@meta.data$orig.ident))
+#   names(tmp_df)[1] <- "GSM_ID"
+#   names(tmp_df)[2] <- as.character(paste("Cluster_", i, sep =""))
+#   cluster_count <- merge(cluster_count, tmp_df, all.x = T, all.y = T)
+# }
+# rownames(cluster_count) <- as.character(cluster_count$GSM_ID)
+# cluster_count <- cluster_count[, 3:length(cluster_count)]
+# for (i in 1:length(cluster_count)) {
+#   for (j in 1:length(cluster_count[[i]])) {
+#     if (is.na(cluster_count[j, i]) == T) {
+#       cluster_count[j, i] <- 0
+#     }
+#   }
+# }
+# # Draw a heatmap presenting the representation of each sample in each cluster
+# library(pheatmap)
+# library(RColorBrewer)
+# # Create the annotations needed for the heatmap (which needs dataframe structures for annotations)
+# tmp_df <- data.frame(table(sc_gsm_integrated$orig.ident, sc_gsm_integrated$batch.ident))
+# lines_to_manage <- c()
+# for (i in 1:length(rownames(tmp_df))) {
+#   if (tmp_df$Freq[i] == 0) {
+#     lines_to_manage <- c(lines_to_manage, i)
+#   }
+# } 
+# tmp_df <- tmp_df[-lines_to_manage,]
+# rownames(tmp_df) <- tmp_df[[1]]
+# tmp_df <- tmp_df[, -1]
+# colnames(tmp_df) <- c("Batch", "Cell.Count")
+# # Then draw the pheatmap
+# p1 <- pheatmap(cluster_count, scale = "column", cluster_rows = F, cluster_cols = F, display_numbers = F, color = colorRampPalette(brewer.pal(n = 11, name = "PRGn"))(100), cellheight = 10, cellwidth = 10, annotation_row = tmp_df)
+# # You should save the heatmap from RStudio | 1000 x 535
+# write.table(cluster_count, paste(reports_dir, "3_sc_gsm_integrated_SeuratClusters_ClusterCount.csv", sep=""), sep=",") # export "cluster_count" as a table  
+```
+
+
+
+
+
+
+
+# DEA
+## Nettoyage
+```{r}
+for (i in c(1:11, 13:16)) {
+  rm(list = paste("MpBC", i, sep = ""))
+}
+rm(all_data_init, obj, annotation_new, annotation_old, p, p1, p2, plot1_all, plot2, plot3, plot7, plot8, plot9, obj_list)
+gc()
+
+```
+
+## Layers joining
+```{r}
+MpBC_obj <- JoinLayers(MpBC_obj)
+```
+
+## FindAllMarkers
+Charger les marqueurs si déjà calculés
+```{r}
+# Charger les marqueurs si déjà calculés
+# markers <- readRDS("markers_pur_cluster_resolution_0.15_v2.rds")
+# markers <- read.csv("/mnt/datadisk/Jordan/Images/DEG/Minpct_0.1/markers_pur_cluster_resolution_0.15_v2_minpct_0.1.csv")
+markers <- read.csv("/mnt/datadisk/Jordan/Images/DEG/Minpct_0.5/markers_pur_cluster_resolution_0.15_v2_minpct_0.5.csv")
+
+
+Idents(MpBC_obj) <- "seurat_clusters_rename"
+```
+
+Calculer les marqueurs
+```{r}
+Idents(MpBC_obj) <- "seurat_clusters_rename"
+
+# Trouver les marqueurs pour chaque cluster
+markers <- FindAllMarkers(
+  object = MpBC_obj,                     
+  assay = "Spatial",                     # Assay à utiliser (par défaut "RNA")
+  features = NULL,                       # Gènes à tester (par défaut tous les gènes)
+  logfc.threshold = 2,                   # On regarde les gènes 4 fois plus sur-exprimés (log2(4) = 2)
+  test.use = "MAST",                     # !!! ---> Test à utiliser (A VOIR SI ON MODIFIE !!!) <--- !!!
+  slot = "data",                         # Slot à utiliser pour les données
+  min.pct = 0.5,                         # Fraction minimale de cellules exprimant le gène (surement à diminuer)
+  min.diff.pct = -Inf,                   # Différence minimale de fraction de détection
+  verbose = TRUE,                        # Afficher une barre de progression
+  only.pos = TRUE,                       # Que les sur-exprimés (on s'intéresse aux gènes pour le diagnostique)
+  max.cells.per.ident = Inf,             # Nombre maximum de cellules par identité (pour faire du downsampling)
+  latent.vars = c("nCount_Spatial", "Visium_slide", "Seq_batch", "Patient"),    # Variables latentes à regresser
+  fc.name = "avg_log2FC",                # Nom de la colonne de fold change
+  return.thresh = 0.05,                  # Seuil de p-value pour retourner les marqueurs
+  densify = FALSE                        # Convertir la matrice sparse en dense
+)
+
+
+
+write.csv(markers, file = "markers_pur_cluster_resolution_0.15_v2_minpct_0.5.csv", row.names = TRUE)
+saveRDS(markers, file = "markers_pur_cluster_resolution_0.15_v2_minpct_0.5.rds")
+```
+
+## Visualisation
+### Tableau
+```{r}
+# Les meilleurs marqueurs par cluster
+top_markers_list  <- markers %>%
+  group_by(cluster) %>%
+  slice_max(n = 10, order_by = avg_log2FC) %>%
+  ungroup() %>%
+  group_split(cluster)
+
+top_markers_list_minpct_0.5 <- markers %>%
+  group_by(cluster) %>%
+  slice_max(n = 10, order_by = avg_log2FC) %>%
+  ungroup() %>%
+  group_split(cluster)
+```
+
+
+### Feature Plot
+```{r}
+# FeaturePlot pour voir l'expression spatiale d'un gène d'intérêt
+top_markers_list <- top_markers_list_minpct_0.5
+
+deg_epi <- top_markers_list[[2]]$gene  # Premier gène du cluster Épithelial
+deg_mes_tum <- top_markers_list[[4]]$gene  # Premier gène du cluster Mesenchymal_tum
+deg_mes_norm <- top_markers_list[[3]]$gene  # Premier gène du cluster Mesenchymal_norm
+deg_spindle <- top_markers_list[[6]]$gene  # Premier gène du cluster Spindle_tum
+deg_squam <- top_markers_list[[7]]$gene  # Premier gène du cluster Squamous_tum
+deg_osteo <- top_markers_list[[5]]$gene  # Premier gène du cluster Osteo_tum
+deg_chondro <- top_markers_list[[1]]$gene  # Premier gène du cluster Chondro_tum
+
+list_cluster_genes <- list(
+  "Epi_tum" = list(deg_epi),
+  "Mes_tum" = list(deg_mes_tum),
+  "Mes_norm" = list(deg_mes_norm),
+  "Spindle_tum" = list(deg_spindle),
+  "Squam_tum" = list(deg_squam),
+  "Osteo_tum" = list(deg_osteo),
+  "Chondro_tum" = list(deg_chondro)
+)
+```
+
+```{r}
+# Boucle sur les noms des clusters
+for (cluster_name in names(list_cluster_genes)) {
+  length_deg_list <- length(list_cluster_genes[[cluster_name]][[1]])
+  for (gene_index in c(1:length_deg_list) ) {
+  gene <- list_cluster_genes[[cluster_name]][[1]][[gene_index]]  # Accéder au premier gène de la liste
+
+  # Créer le FeaturePlot pour le gène correspondant
+  p <- FeaturePlot(
+    object = MpBC_obj,
+    features = gene,
+    reduction = "umap",
+    label = TRUE,
+    repel = TRUE) + 
+    ggtitle(paste0("Cluster: ", cluster_name, " - Gene: ", gene))
+
+  # Afficher le plot
+  print(p)
+  
+  # Sauvegarder le plot
+  ggsave(paste0("FeaturePlot_", cluster_name, "_", gene, ".pdf"), plot = p, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+  }
+}
+```
+
+Clusters ==> Good markers :
+
+- Mes_tum ==> LTF / UBD / `DSG1`
+- Mes_norm ==> `IGHG1`
+- Osteo_tum ==> `IBSP`
+- Spindle_tum ==> GCC / TDO2 / FMOD / OLFML2B / `C1QTNF3`
+- Squam-tum ==> SERPINB4 / `SPRR2D` / `SPRR1B`
+- Chondro_tum ==> CAL2B2 / ZNF38SC / IL17B / `WWP2` / `SOD3`
+- Epi_tum ==> BPIFB1 / MUC6 / `AZGP1` / `CD24` / `EPCAM` / `EPPK1` / `PROM1`
+
+### DotPlot
+```{r}
+intersting_markers <- c("SPRR2D", "SPRR1B", "AZGP1", "CD24", "EPCAM", "EPPK1", "PROM1", "DSG1", "IGHG1", "C1QTNF3", "IBSP", "WWP2", "SOD3")
+intersting_markers_squam <- c("SPRR2D", "SPRR1B")
+intersting_markers_epi <- c("AZGP1", "CD24", "EPCAM", "EPPK1", "PROM1")
+intersting_markers_mes_tum <- c("DSG1")
+intersting_markers_mes_norm <- c("IGHG1")
+intersting_markers_spindle <- c("C1QTNF3")
+intersting_markers_osteo <- c("IBSP")
+intersting_markers_chondro <- c("WWP2", "SOD3")
+
+MpBC_obj$seurat_clusters_rename <- factor(
+    MpBC_obj$seurat_clusters_rename, 
+    levels = c("Squam_tum", "Epi_tum", "Mes_tum", "Mes_norm", "Spindle_tum", "Osteo_tum", "Chondro_tum"))
+
+Idents(MpBC_obj) <- factor(MpBC_obj$seurat_clusters_rename)
+
+DotPlot(MpBC_obj, 
+        features = intersting_markers,
+        group.by = "seurat_clusters_rename",
+        cluster.idents = FALSE) + RotatedAxis()
+
+# Save
+ggsave("DotPlot.pdf", width = 12, height = 6, dpi = 300)
+```
+```{r}
+# Un dot plot par gene avec en orodonnée les clusters et en absisce les patients concerné par ce cluster
+DotPlot(subset(MpBC_obj, Patient == Squam_tum_patients), 
+        features = intersting_markers_squam,
+        group.by = "Patient",
+        cluster.idents = FALSE) + RotatedAxis() + coord_flip() +
+  ggtitle("Squam_tum_patients for best markers")
+ggsave("DotPlot_Squam_tum_patients.pdf", width = 12, height = 6, dpi = 300)
+
+DotPlot(subset(MpBC_obj, Patient == Epi_tum_patients), 
+        features = intersting_markers_epi,
+        group.by = "Patient",
+        cluster.idents = FALSE) + RotatedAxis() + coord_flip() +
+  ggtitle("Epi_tum_patients for best markers")
+ggsave("DotPlot_Epi_tum_patients.pdf", width = 12, height = 6, dpi = 300)
+
+DotPlot(subset(MpBC_obj, Patient == Mes_tum_patients), 
+        features = intersting_markers_mes_tum,
+        group.by = "Patient",
+        cluster.idents = FALSE) + RotatedAxis() + coord_flip() +
+  ggtitle("Mes_tum_patients for best markers")
+ggsave("DotPlot_Mes_tum_patients.pdf", width = 12, height = 6, dpi = 300)
+
+DotPlot(subset(MpBC_obj, Patient == Mes_norm_patients), 
+        features = intersting_markers_mes_norm,
+        group.by = "Patient",
+        cluster.idents = FALSE) + RotatedAxis() + coord_flip() +
+  ggtitle("Mes_norm_patients for best markers")
+ggsave("DotPlot_Mes_norm_patients.pdf", width = 12, height = 6, dpi = 300)
+
+DotPlot(subset(MpBC_obj, Patient == Spindle_tum_patients), 
+        features = intersting_markers_spindle,
+        group.by = "Patient",
+        cluster.idents = FALSE) + RotatedAxis() + coord_flip() +
+  ggtitle("Spindle_tum_patients for best markers")
+ggsave("DotPlot_Spindle_tum_patients.pdf", width = 12, height = 6, dpi = 300)
+
+DotPlot(subset(MpBC_obj, Patient == Osteo_tum_patients), 
+        features = intersting_markers_osteo,
+        group.by = "Patient",
+        cluster.idents = FALSE) + RotatedAxis() + coord_flip() +
+  ggtitle("Osteo_tum_patients for best markers")
+ggsave("DotPlot_Osteo_tum_patients.pdf", width = 12, height = 6, dpi = 300)
+
+DotPlot(subset(MpBC_obj, Patient == Chondro_tum_patients), 
+        features = intersting_markers_chondro,
+        group.by = "Patient",
+        cluster.idents = FALSE) + RotatedAxis() + coord_flip() +
+  ggtitle("Chondro_tum_patients for best markers")
+ggsave("DotPlot_Chondro_tum_patients.pdf", width = 12, height = 6, dpi = 300)
+
+
+``` 
+
+### Violin Plot
+```{r}
+violin_squam <- VlnPlot(MpBC_obj, features = c("SPRR2D", "SPRR1B", "AZGP1", "CD24", "EPCAM", "EPPK1", "PROM1", "DSG1", "IGHG1", "C1QTNF3", "IBSP", "WWP2", "SOD3"), group.by = "Patient")
+
+# Visualiser markers Violin Plot
+VlnPlot(subset(MpBC_obj, Patient == Squam_tum_patients), features = c("SPRR2D", "SPRR1B"), group.by = "Patient")
+ggsave("VlnPlot_Squam_tum_patients.pdf", width = 12, height = 6, dpi = 300)
+
+VlnPlot(subset(MpBC_obj, Patient == Epi_tum_patients), features = c("AZGP1", "CD24", "EPCAM", "EPPK1", "PROM1"), group.by = "Patient")
+ggsave("VlnPlot_Epi_tum_patients.pdf", width = 12, height = 6, dpi = 300)
+
+VlnPlot(subset(MpBC_obj, Patient == Mes_tum_patients), features = c("DSG1"), group.by = "Patient")
+ggsave("VlnPlot_Mes_tum_patients.pdf", width = 12, height = 6, dpi = 300)
+
+VlnPlot(subset(MpBC_obj, Patient == Mes_norm_patients), features = c("IGHG1"), group.by = "Patient")
+ggsave("VlnPlot_Mes_norm_patients.pdf", width = 12, height = 6, dpi = 300)
+
+VlnPlot(subset(MpBC_obj, Patient == Spindle_tum_patients), features = c("C1QTNF3"), group.by = "Patient")
+ggsave("VlnPlot_Spindle_tum_patients.pdf", width = 12, height = 6, dpi = 300)
+
+VlnPlot(subset(MpBC_obj, Patient == Osteo_tum_patients), features = c("IBSP"), group.by = "Patient")
+ggsave("VlnPlot_Osteo_tum_patients.pdf", width = 12, height = 6, dpi = 300)
+
+VlnPlot(subset(MpBC_obj, Patient == Chondro_tum_patients), features = c("WWP2", "SOD3"), group.by = "Patient")
+ggsave("VlnPlot_Chondro_tum_patients.pdf", width = 12, height = 6, dpi = 300)
+
+
+
+```
+
+```{r}
+# Single cell heatmap of feature expression
+DoHeatmap(subset(MpBC_obj, downsample = 100), features = intersting_markers, size = 3)
+```
+
+### Volcano Plot
+```{r}
+library(EnhancedVolcano)
+
+EnhancedVolcano(markers,
+    lab = markers$gene,,
+    selectLab = top_markers$gene,
+    x = 'avg_log2FC',
+    y = 'p_val_adj',
+    xlim =c(0, 10),
+    title = 'VolcanoPlot - All Patients',
+    xlab = bquote(~Log[2]~ 'fold change'),
+    pCutoff = 10e-10,
+    FCcutoff = 2,
+    cutoffLineType = 'twodash',
+    cutoffLineWidth = 0.8,
+    pointSize = 2.0,
+    labSize = 3.0,
+    # shape = c(1,4, 23,25),
+    colAlpha = 0.66,
+    legendLabels=c('Not sig.','Log (base 2) FC','p-value',
+      'p-value & Log (base 2) FC'),
+    legendPosition = 'right',
+    legendLabSize = 16,
+    legendIconSize = 5.0,
+    # drawConnectors = TRUE,
+    # widthConnectors = 0.75,
+    # ridlines.major = FALSE,
+    gridlines.minor = FALSE
+    )
+
+ggplot2::ggsave("VolcanoPlot.png", width = 12, height = 6, dpi = 300)
+```
+
+### Heatmap
+```{r}
+library(pheatmap)
+
+# Filtrer les gènes up-régulés les plus significatifs
+top_up_genes <- markers[order(markers$p_val_adj), ][1:30, "gene"] # Top 20 gènes
+
+# Extraire les valeurs d'expression (tu devras adapter selon ton dataset)
+expression_data <- as.matrix(GetAssayData(object = MpBC_obj, slot = "data"))
+expr_matrix <- expression_data[top_up_genes, ] 
+
+# Heatmap
+heatmap <- pheatmap(expr_matrix, 
+         scale = "row", 
+         clustering_distance_rows = "correlation",
+         fontsize_row = 6,
+         fontsize_col = 2,
+         show_colnames = FALSE)
+
+# Sauvegarder le heatmap
+ggsave("Heatmap_top20_genes_padj.png", plot = heatmap, width = 12, height = 6, dpi = 300)
+```
+
+
+
+```{r}
+# Enregistrer l'objet Seurat
+saveRDS(MpBC_obj, file = "MpBC_obj_clusters_purif.rds")
+saveRDS(all_data, file = "MpBC_obj_all_cells.rds")
+```
+

@@ -1,0 +1,202 @@
+---
+title: "Pipeline_UMAP"
+author: "J Dutel"
+date: "2025-03-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(hdf5r)
+library(ggfortify)
+library(harmony)
+library(sctransform)
+library(viridis)
+library(stringr)
+library(viridisLite)
+library(patchwork)
+library(matrixStats)
+library(ggpubr)
+library(infercnvPlus)
+
+dir_path <- "/mnt/datadisk/Jordan/Data/"
+
+Squam_tum_patients <- c("MpBC3", "MpBC8")
+Epi_tum_patients <- c("MpBC1", "MpBC2", "MpBC5", "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16")
+Mes_tum_patients <- c("MpBC1", "MpBC8")
+Mes_norm_patients <- c("MpBC1", "MpBC2", "MpBC5", "MpBC6", "MpBC9", "MpBC11", "MpBC14", "MpBC15")
+Spindle_tum_patients <- c("MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC10", "MpBC11", "MpBC14")
+Osteo_tum_patients <- c("MpBC4")
+Chondro_tum_patients <- c("MpBC9", "MpBC13", "MpBC15", "MpBC16")
+```
+
+```{r}
+# LOADING
+# Boucle pour charger et traiter chaque échantillon
+for (sample in samples) {
+  print(paste("📥 Chargement des données pour", sample, "..."))
+  
+  # Définir le chemin des fichiers
+  data_path <- paste0(dir_path, "Visium/", sample)
+  
+  # Déterminer le batch en fonction du numéro d'échantillon
+  sample_number <- as.numeric(gsub("MpBC", "", sample))
+  
+  ## Numero batch
+  if (sample_number >= 1 & sample_number <= 8) {batch <- "batch1"} 
+  else if (sample_number >= 9 & sample_number <= 16 & sample_number != 12) {batch <- "batch2"}
+  
+  ## Numero slide
+  if (sample_number == 1 | sample_number == 2) {slide <- "slide1"} 
+  else if (sample_number == 3 | sample_number == 4) {slide <- "slide2"}
+  else if (sample_number == 5 | sample_number == 6) {slide <- "slide3"}
+  else if (sample_number == 7 | sample_number == 8) {slide <- "slide4"}
+  else if (sample_number == 9 | sample_number == 10) {slide <- "slide5"}
+  else if (sample_number == 11 | sample_number == 12) {slide <- "slide6"}
+  else if (sample_number == 13 | sample_number == 14) {slide <- "slide7"}
+  else if (sample_number == 15 | sample_number == 16) {slide <- "slide8"}
+  
+  # Charger les données 10X Spatial
+  obj <- Load10X_Spatial(data.dir = data_path, 
+                         filename = "filtered_feature_bc_matrix.h5", 
+                         assay = "Spatial", slice = paste0("Slice_", sample)) %>% 
+    AddMetaData(metadata = batch, col.name = 'Seq_batch') %>% 
+    AddMetaData(metadata = slide, col.name = 'Visium_slide')
+  
+  # Charger les annotations
+  annotation_new <- read.csv(paste0(data_path, "/Annotations_new_with_unlabels.csv")) %>%
+    mutate(Barcode = paste0(sample, "_", Barcode))
+  
+  annotation_old <- read.csv(paste0(data_path, "/Annotations_old_with_unlabels.csv")) %>%
+    mutate(Barcode = paste0(sample, "_", Barcode)) %>%
+    rename("Barcode_new" = Barcode)
+  
+  # Ajouter les annotations à meta.data
+  obj@meta.data <- obj@meta.data %>%
+    cbind(annotation_new, annotation_old) %>%
+    select(-Barcode_new) %>%
+    rename("Patient" = orig.ident) %>%
+    mutate(Patient = sample)
+
+  obj <- subset(obj,
+                subset = (nCount_Spatial > 0 &
+                          Annotations_old != "" & Annotations_old != "Adipose" &
+                          Annotations_old != "Artifacts" & Annotations_old != "Immune cells" &
+                          Annotations_old != "Intermediate tumour cells" & Annotations_old != "Mixed cells" &
+                          Annotations_old != "Necrosis" & Annotations_old != "Necrotic and apoptotic tissue" &
+                          Annotations_old != "NST surrounded by spindle" & Annotations_old != "Scar-like fibrous stroma" &
+                          Annotations_new != "Pleiomorphic tumor"))
+  
+  # Convertir les données dans orig.ident en facteur
+  obj$Seq_batch <- as.factor(obj$Seq_batch)
+  obj$Visium_slide <- factor(obj$Visium_slide)
+  
+  # Sauvegarder l'objet dans l'environnement sous le nom "MpBCX"
+  assign(sample, obj)
+  
+  # On fait le propre
+  rm(annotation_old, annotation_new, obj)
+  
+  
+  
+  
+  print(paste("✅ Données chargées pour", sample))
+
+}
+
+# On change samples pour qu'il contienne les objets Seurat en eux-même (plutôt que les noms des objets (charcters))
+samples <- list(MpBC1, MpBC2, MpBC3, MpBC4, MpBC5, MpBC6, MpBC7, MpBC8, MpBC9, MpBC10, MpBC11, MpBC13, MpBC14, MpBC15, MpBC16)
+names(samples) <- c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16")
+  
+  
+print("🎉 Tous les échantillons ont été traités avec succès !")
+
+
+
+
+
+# MERGING
+# On merge nos objet en un seul
+obj_list <- c(MpBC2, MpBC3, MpBC4, MpBC5, MpBC6, MpBC7, MpBC8, 
+              MpBC9, MpBC10, MpBC11, MpBC13, MpBC14, MpBC15, MpBC16)
+names_obj_list <- c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", 
+                    "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16")
+
+all_data_init <- merge(MpBC1, 
+                       y = obj_list, 
+                       add.cell.ids = names_obj_list,
+                       project = "MpBC_Visium",
+                       merge.data = TRUE)
+
+# Convertir les données dans orig.ident en facteur
+all_data_init$Patient <- factor(all_data_init$Patient, 
+                                levels = c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", 
+                                           "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16"))
+all_data_init$Seq_batch <- factor(all_data_init$Seq_batch, 
+                                  levels = c("batch1", "batch2"))
+all_data_init$Visium_slide <- factor(all_data_init$Visium_slide, 
+                                     levels = c("slide1", "slide2", "slide3", "slide4", 
+                                                "slide5", "slide6", "slide7", "slide8"))
+
+
+
+
+# FILTERING
+all_data <- subset(all_data_init, 
+                nCount_Spatial > 0 & Annotations_old != "" & Annotations_old != "Adipose" &
+                  Annotations_old != "Artifacts" & Annotations_old != "Immune cells" & 
+                  Annotations_old != "Intermediate tumour cells" & Annotations_old != "Mixed cells" &
+                  Annotations_old != "Necrosis" & Annotations_old != "Necrotic and apoptotic tissue" &
+                  Annotations_old != "NST surrounded by spindle" & Annotations_old != "Scar-like fibrous stroma" &
+                  Annotations_new != "Pleiomorphic tumor")
+
+
+
+# PROCESSING
+all_data <- all_data %>% 
+  NormalizeData(assay = "Spatial",
+                normalization.method = "LogNormalize",
+                scale.factor = 5000) %>% 
+  FindVariableFeatures(selection.method = "vst",
+                       nfeatures = 750) %>% 
+  ScaleData(do.scale = TRUE,
+            do.center = TRUE,
+            scale.max = 10,
+            model.use = "linear") %>% 
+  RunPCA(assay = "Spatial",
+         npcs = 50) %>%
+  RunHarmony(c("Patient", "Seq_batch", "Visium_slide"),
+             theta = c(2, 2, 2),
+             lambda = 1,
+             sigma = 0.2,
+             nclust = 150,
+             max_iter = 50,
+             verbose = TRUE) %>% 
+  RunUMAP(object = .,
+          assay = "Spatial",
+          seed.use = 42,
+          reduction = "harmony",
+          dims = 1:20,
+          n.neighbors = 75, 
+          min.dist = 0.0001,
+          spread = 2,
+          set.op.mix.ratio = 1,
+          metric = "cosine") %>% 
+  FindNeighbors(reduction = "harmony", 
+                dims = 1:50) %>% 
+  FindClusters(resolution = 0.15,
+               algorithm = 2) %>%
+  JoinLayers()
+
+
+  
+  
+# SAVING  
+saveRDS(all_data, "/mnt/datadisk/Jordan/Data/Seurat_object/MpBC_obj_all_cells2.rds")
+```
+
