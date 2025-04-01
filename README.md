@@ -21,10 +21,10 @@ Les analyses se baseront sur des données issues de coupes d’échantillons, av
 
 ## Compétences Requises
 
-Le/la candidat(e) idéal(e) devra être à l’aise avec :
+Ce projet demande d'être à l’aise avec :
 - Le **langage R** et les environnements **UNIX/Linux**.
 - Les notions de **biologie** et de **statistique**.
-- Une expérience en **analyse RNA-seq** est fortement appréciée.
+- Les analyses en **analyse RNA-seq**.
 
 ---
 
