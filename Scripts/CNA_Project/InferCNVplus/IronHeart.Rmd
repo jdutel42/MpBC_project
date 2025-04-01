@@ -150,7 +150,9 @@ for (sample in samples) {
   print(paste("✅ Données chargées pour", sample))
 
 }
+```
 
+```{r}
 # On change samples pour qu'il contienne les objets Seurat en eux-même (plutôt que les noms des objets (charcters))
 samples <- list(MpBC1, MpBC2, MpBC3, MpBC4, MpBC5, MpBC6, MpBC7, MpBC8, MpBC9, MpBC10, MpBC11, MpBC13, MpBC14, MpBC15, MpBC16)
 names(samples) <- c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16")
@@ -315,7 +317,7 @@ for (sample_name in samples_names) {
 # InferCNVplus
 
 ```{r}
-for(sample_name in samples_names){
+for(sample_name in samples_names) {
   
   print(paste("Preprocessing InferCNVplus for", sample_name))
   
@@ -386,6 +388,23 @@ for(sample_name in samples_names){
 }
 ```
 
+
+SI on veut pas tout recalculer !
+
+```{r}
+for (sample_name in samples_names) {
+  
+  # Charger le RDS
+  cnv_obj <- readRDS(sprintf("/mnt/datadisk/Jordan/Data/CNA/cnv_obj_%s.rds", sample_name))
+  
+  # Assigner l'objet
+  assign(sprintf("cnv_obj_%s", sample_name), cnv_obj)
+  
+  print(paste("✅ Objet cnv_obj_", sample_name, " chargé et assigné", sep = ""))
+  
+}
+```
+
 # Downstream analysis
 
 # Cytoband processing
@@ -425,6 +444,35 @@ cytobands$V1[cytobands$V1 == 24] <- "Y"
 colnames(cytobands)[4] <-  "cytoband"
 colnames(cytobands)[1] <-  "chromosome"
 ```
+
+
+On a au total 862 cytobandes mineures (p36.1, p36.2, p36.3...) pour tous mes chromosomes.
+On peut les regrouper en cytobandes majeures (p36).
+
+```{r}
+# On va regrouper les cytobands mineures en cytobands majeures dans un nouveau dataframe
+cytobands_maj <- cytobands %>%
+  # mutate(start = as.numeric(V2),
+  #        end = as.numeric(V3)) %>%
+  mutate(cytoband = gsub("\\..*", "", cytoband)) %>%
+  group_by(chromosome, cytoband) %>%
+  summarise(V2 = min(V2), V3 = max(V3), .groups = "drop") %>%
+  arrange(chromosome, V2) %>% 
+  relocate(cytoband, .after = V3)
+
+# Nombre de cytobandes mineures et majeures
+print(paste0("Le nombre de cytobandes mineures est de : ", length(cytobands$cytoband)))
+print(paste0("Le nombre de cytobandes majeures est de : ", length(cytobands_maj$cytoband)))
+
+```
+
+On a donc 320 cytobandes majeures.
+
+```{r}
+# Si on veut utiliser les cytobandes majeures plutôt que mineures
+cytobands <- cytobands_maj
+```
+
 
 Collect all the genes names
 
@@ -518,7 +566,7 @@ for (sample_name in samples_names) {
   # # aggregate the scores using median by the $cnv_cyt and $chromosomes columns
   # 
   print("Aggregating CNA scores by cytoband and chromosome")
-  cnv_df <- aggregate(x = cnv_df[, tmp],by = list(cnv_df$chromosomes, cnv_df$cnv_cyt),FUN = median)
+  cnv_df <- aggregate(x = cnv_df[, tmp],by = list(cnv_df$chromosomes, cnv_df$cnv_cyt), FUN = median)
   print("✅ CNA scores aggregated by cytoband and chromosome")
 
   # # rename the cnv_cyt and chromosomes columns since they are changes to 
