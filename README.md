@@ -30,13 +30,9 @@ Le/la candidat(e) idéal(e) devra être à l’aise avec :
 
 ## Informations Pratiques
 
-- **Type de stage :** Master 2 / 5e année (durée : 6 mois)
-- **Gratification :** ~580 euros par mois, avec remboursement partiel des titres de transport.
 - **Encadrement :** Pierre Martinez (bioinformaticien, Inserm) – [pierre.martinez@lyon.unicancer.fr](mailto:pierre.martinez@lyon.unicancer.fr)
 - **Lieu :** Centre de Recherche en Cancérologie de Lyon, Cheney D 2e étage.
 - **Site web du responsable :** [https://pierremartinez.github.io/](https://pierremartinez.github.io/)
-
-De plus, le stage s’inscrit dans un environnement hautement pluridisciplinaire (bioinformaticiens, médecins, biologistes) et offre la possibilité d’envisager une poursuite en thèse avec l’intégration de données génétiques et épigénétiques.
 
 ---
 
@@ -54,7 +50,7 @@ De plus, le stage s’inscrit dans un environnement hautement pluridisciplinaire
 
 ---
 
-## Démarrage et Organisation du Dépôt
+## Organisation du Dépôt
 
 Ce dépôt GitHub contient :
 - **Scripts et analyses** en R pour le traitement et l'analyse des données transcriptomiques.
