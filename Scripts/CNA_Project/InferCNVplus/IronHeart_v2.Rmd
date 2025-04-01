@@ -1337,6 +1337,19 @@ my_df <- my_df %>%
 ```
 
 ```{r}
+# On reagrde si nos données sont normalement distribuées
+hist(my_df$CNA_score, breaks = 50, main = "Distribution de CNA_score", xlab = "CNA_score", probability = TRUE)
+lines(density(df_patient$CNA_score), col = "red", lwd = 2)
+```
+
+```{r}
+qqnorm(my_df$CNA_score)
+qqline(my_df$CNA_score, col = "red", lwd = 2)
+```
+
+Nos données sont normalement distribuées, on peut donc utiliser un t-test pour comparer les bras chromosomiques.
+
+```{r}
 # Liste pour stocker les résultats par patient
 results_list <- list()
 
