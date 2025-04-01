@@ -1,0 +1,85 @@
+---
+title: "Untitled"
+author: "J Dutel"
+date: "2025-02-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Banksy)
+library(SummarizedExperiment)
+library(SpatialExperiment)
+library(Seurat)
+
+library(scater)
+library(cowplot)
+library(ggplot2)
+library(spatialLIBD)
+library(ExperimentHub)
+```
+
+
+```{r}
+ehub <- ExperimentHub::ExperimentHub()
+spe <- spatialLIBD::fetch_data(type = "spe", eh = ehub)
+```
+
+```{r}
+imgData(spe) <- NULL
+assay(spe, "logcounts") <- NULL
+reducedDims(spe) <- NULL
+rowData(spe) <- NULL
+colData(spe) <- DataFrame(
+    sample_id = spe$sample_id,
+    clust_annotation = factor(
+        addNA(spe$layer_guess_reordered_short),
+        exclude = NULL, labels = seq(8)
+    ),
+    in_tissue = spe$in_tissue,
+    row.names = colnames(spe)
+)
+invisible(gc())
+```
+
+```{r}
+sample_names <- as.character(151673:151676)
+spe_list <- lapply(sample_names, function(x) spe[, spe$sample_id == x])
+rm(spe)
+invisible(gc())
+```
+
+```{r}
+#' Normalize data
+seu_list <- lapply(spe_list, function(x) {
+    x <- as.Seurat(x, data = NULL)
+    NormalizeData(x, scale.factor = 5000, normalization.method = 'RC')
+})
+
+#' Compute HVGs
+hvgs <- lapply(seu_list, function(x) {
+    VariableFeatures(FindVariableFeatures(x, nfeatures = 2000))
+})
+hvgs <- Reduce(union, hvgs)
+
+#' Add data to SpatialExperiment and subset to HVGs
+aname <- "normcounts"
+spe_list <- Map(function(spe, seu) {
+    assay(spe, aname) <- GetAssayData(seu)
+    spe[hvgs,]
+    }, spe_list, seu_list)
+rm(seu_list)
+invisible(gc())
+```
+```{r}
+compute_agf <- FALSE
+k_geom <- 6
+spe_list <- lapply(spe_list, computeBanksy, assay_name = aname, 
+                   compute_agf = compute_agf, k_geom = k_geom)
+```
+```{r}
+spe_joint <- do.call(cbind, spe_list)
+rm(spe_list)
+invisible(gc())
+```
+

@@ -1,0 +1,34 @@
+---
+title: "Spots_Sweeper"
+author: "J Dutel"
+date: "2025-02-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(SpotSweeper)
+
+```
+
+
+```{r}
+
+# load  Maynard et al DLPFC daatset
+spe <- STexampleData::Visium_humanDLPFC()
+
+## see ?STexampleData and browseVignettes('STexampleData') for documentation
+
+## loading from cache
+
+# show column data before SpotSweeper
+colnames(colData(spe))
+
+## [1] "barcode_id"   "sample_id"    "in_tissue"    "array_row"    "array_col"   
+## [6] "ground_truth" "reference"    "cell_count"
+
+# drop out-of-tissue spots
+spe <- spe[, spe$in_tissue == 1]
+```
+

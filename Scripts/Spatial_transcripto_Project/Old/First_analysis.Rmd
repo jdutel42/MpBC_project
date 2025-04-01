@@ -1,0 +1,1185 @@
+---
+title: "First_analysis"
+author: "J Dutel"
+date: '2025-02-05'
+output: html_document
+---
+
+# I) Loading
+## A) On load les packages :
+- Seurat
+- ggplot2
+- dplyr
+- hdf5r
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(hdf5r)
+library(ggfortify)
+library(harmony)
+library(sctransform)
+```
+
+## B) On load les data
+
+### 1) Les matrices de comptages
+
+On créé un objet Seurat pour chaque sample, contenant la matrice de comptage `("filtered_feature_bc_matrix.h5")`, un nom pour le sample et un nom pour la coupe
+
+```{r 0.1}
+dir_path <- "/mnt/datadisk/Jordan/Data/"
+
+# Batch 1
+# -------
+# MpBC1 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC1"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC1", slice = "Slice1")
+# MpBC2 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC2"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC2", slice = "Slice2")
+# MpBC3 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC3"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC3", slice = "Slice3")
+# MpBC4 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC4"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC4", slice = "Slice4")
+# MpBC5 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC5"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC5", slice = "Slice5")
+# MpBC6 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC6"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC6", slice = "Slice6")
+# MpBC7 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC7"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC7", slice = "Slice7")
+# MpBC8 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC8"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC8", slice = "Slice8")
+MpBC1 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC1"), filename = "filtered_feature_bc_matrix.h5")
+MpBC2 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC2"), filename = "filtered_feature_bc_matrix.h5")
+MpBC3 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC3"), filename = "filtered_feature_bc_matrix.h5")
+MpBC4 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC4"), filename = "filtered_feature_bc_matrix.h5")
+MpBC5 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC5"), filename = "filtered_feature_bc_matrix.h5")
+MpBC6 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC6"), filename = "filtered_feature_bc_matrix.h5")
+MpBC7 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC7"), filename = "filtered_feature_bc_matrix.h5")
+MpBC8 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC8"), filename = "filtered_feature_bc_matrix.h5")
+
+# Batch 2
+# -------
+# MpBC9 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC9"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC9", slice = "Slice9")
+# MpBC10 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC10"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC10", slice = "Slice10")
+# MpBC11 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC11"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC11", slice = "Slice11")
+# # MpBC12 de mauvaise qualité = on l'écarte
+# MpBC13 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC13"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC13", slice = "Slice13")
+# MpBC14 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC14"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC14", slice = "Slice14")
+# MpBC15 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC15"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC15", slice = "Slice15")
+# MpBC16 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC16"), filename = "filtered_feature_bc_matrix.h5", assay = "MpBC16", slice = "Slice16")
+MpBC9 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC9"), filename = "filtered_feature_bc_matrix.h5")
+MpBC10 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC10"), filename = "filtered_feature_bc_matrix.h5")
+MpBC11 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC11"), filename = "filtered_feature_bc_matrix.h5")
+# MpBC12 de mauvaise qualité = on l'écarte
+MpBC13 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC13"), filename = "filtered_feature_bc_matrix.h5")
+MpBC14 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC14"), filename = "filtered_feature_bc_matrix.h5")
+MpBC15 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC15"), filename = "filtered_feature_bc_matrix.h5")
+MpBC16 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC16"), filename = "filtered_feature_bc_matrix.h5")
+```
+
+
+### 1) Les annotations
+
+```{r 0.2}
+dir_path <- "/mnt/datadisk/Jordan/Data/"
+
+# Batch 1
+# -------
+annotation_MpBC1 <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC1/Annotations_MpBC1_new.csv"), row.names = 1)
+annotation_MpBC2 <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC2/Annotations_MpBC2_new.csv"), row.names = 1)
+annotation_MpBC3 <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC3/Annotations_MpBC3_new.csv"), row.names = 1)
+annotation_MpBC4 <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC4/Annotations_MpBC4_new.csv"), row.names = 1)
+annotation_MpBC5 <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC5/Annotations_MpBC5_new.csv"), row.names = 1)
+annotation_MpBC6 <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC6/Annotations_MpBC6_new.csv"), row.names = 1)
+annotation_MpBC7 <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC7/Annotations_MpBC7_new.csv"), row.names = 1)
+annotation_MpBC8 <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC8/Annotations_MpBC8_new.csv"), row.names = 1)
+
+# Batch 2
+# -------
+annotation_MpBC9 <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC9/Annotations_MpBC9_new.csv"), row.names = 1)
+annotation_MpBC10 <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC10/Annotations_MpBC10_new.csv"), row.names = 1)
+annotation_MpBC11 <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC11/Annotations_MpBC11_new.csv"), row.names = 1)
+annotation_MpBC13 <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC13/Annotations_MpBC13_new.csv"), row.names = 1)
+annotation_MpBC14 <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC14/Annotations_MpBC14_new.csv"), row.names = 1)
+annotation_MpBC15 <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC15/Annotations_MpBC15_new.csv"), row.names = 1)
+annotation_MpBC16 <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC16/Annotations_MpBC16_new.csv"), row.names = 1)
+```
+
+On regarde si les barcodes dans les metadata sont bien présent dans les annotations
+
+```{r}
+all(rownames(annotation_MpBC1) %in% rownames(MpBC1@meta.data))
+all(rownames(annotation_MpBC2) %in% rownames(MpBC2@meta.data))
+all(rownames(annotation_MpBC3) %in% rownames(MpBC3@meta.data))
+all(rownames(annotation_MpBC4) %in% rownames(MpBC4@meta.data))
+all(rownames(annotation_MpBC5) %in% rownames(MpBC5@meta.data))
+all(rownames(annotation_MpBC6) %in% rownames(MpBC6@meta.data))
+all(rownames(annotation_MpBC7) %in% rownames(MpBC7@meta.data))
+all(rownames(annotation_MpBC8) %in% rownames(MpBC8@meta.data))
+all(rownames(annotation_MpBC9) %in% rownames(MpBC9@meta.data))
+all(rownames(annotation_MpBC10) %in% rownames(MpBC10@meta.data))
+all(rownames(annotation_MpBC11) %in% rownames(MpBC11@meta.data))
+all(rownames(annotation_MpBC13) %in% rownames(MpBC13@meta.data))
+all(rownames(annotation_MpBC14) %in% rownames(MpBC14@meta.data))
+all(rownames(annotation_MpBC15) %in% rownames(MpBC15@meta.data))
+all(rownames(annotation_MpBC16) %in% rownames(MpBC16@meta.data))
+```
+
+On a True donc les barcodes des annotations sont tous présents dans les data des objets MpBC correspondant mais est ce qu'il sont dans le même ordre ?
+
+```{r}
+head(rownames(annotation_MpBC1))  # Les barcodes dans les annotations
+head(rownames(MpBC1@meta.data))  # Les barcodes dans l'objet Seurat
+```
+
+Par exemple pour Mpbc1 -> Non ! Il faut donc réorganiser les barcode dans le même ordre ! On le fait pour toutes les annotations.
+
+```{r}
+annotation_MpBC1 <- annotation_MpBC1[rownames(MpBC1@meta.data), , drop = FALSE]
+annotation_MpBC2 <- annotation_MpBC2[rownames(MpBC2@meta.data), , drop = FALSE]
+annotation_MpBC3 <- annotation_MpBC3[rownames(MpBC3@meta.data), , drop = FALSE]
+annotation_MpBC4 <- annotation_MpBC4[rownames(MpBC4@meta.data), , drop = FALSE]
+annotation_MpBC5 <- annotation_MpBC5[rownames(MpBC5@meta.data), , drop = FALSE]
+annotation_MpBC6 <- annotation_MpBC6[rownames(MpBC6@meta.data), , drop = FALSE]
+annotation_MpBC7 <- annotation_MpBC7[rownames(MpBC7@meta.data), , drop = FALSE]
+annotation_MpBC8 <- annotation_MpBC8[rownames(MpBC8@meta.data), , drop = FALSE]
+
+annotation_MpBC9 <- annotation_MpBC9[rownames(MpBC9@meta.data), , drop = FALSE]
+annotation_MpBC10 <- annotation_MpBC10[rownames(MpBC10@meta.data), , drop = FALSE]
+annotation_MpBC11 <- annotation_MpBC11[rownames(MpBC11@meta.data), , drop = FALSE]
+annotation_MpBC13 <- annotation_MpBC13[rownames(MpBC13@meta.data), , drop = FALSE]
+annotation_MpBC14 <- annotation_MpBC14[rownames(MpBC14@meta.data), , drop = FALSE]
+annotation_MpBC15 <- annotation_MpBC15[rownames(MpBC15@meta.data), , drop = FALSE]
+annotation_MpBC16 <- annotation_MpBC16[rownames(MpBC16@meta.data), , drop = FALSE]
+
+
+```
+
+On vérifie si c'est mieux
+
+```{r}
+head(rownames(annotation_MpBC1))  # Les barcodes dans les annotations
+head(rownames(MpBC1@meta.data))  # Les barcodes dans l'objet Seurat
+
+head(rownames(annotation_MpBC2))  # Les barcodes dans les annotations
+head(rownames(MpBC2@meta.data))  # Les barcodes dans l'objet Seurat
+
+head(rownames(annotation_MpBC3))  # Les barcodes dans les annotations
+head(rownames(MpBC3@meta.data))  # Les barcodes dans l'objet Seurat
+```
+
+C'est mieux ! Les NA correspondent aux barcodes des cellules/spots qui n'ont pas été annotées.
+On peux donc ajouter ces annotations aux metadata de chaque objet Seurat
+
+[NOTE] 
+Il faudra faire attention lorsqu'on regroupera tous les sample ensemble, LES BARCODES DES SPOTS SONT IDENTIQUES ENTRE SAMPLES !!! Il faudra trouver un moyen de modifier ces Barcodes fin qu'ils soient uniques (par exemple encoder le numéro du sample dans le barcode ou autre moyen)
+
+```{r}
+MpBC1@meta.data <- cbind(MpBC1@meta.data, annotation_MpBC1)
+MpBC2@meta.data <- cbind(MpBC2@meta.data, annotation_MpBC2)
+MpBC3@meta.data <- cbind(MpBC3@meta.data, annotation_MpBC3)
+MpBC4@meta.data <- cbind(MpBC4@meta.data, annotation_MpBC4)
+MpBC5@meta.data <- cbind(MpBC5@meta.data, annotation_MpBC5)
+MpBC6@meta.data <- cbind(MpBC6@meta.data, annotation_MpBC6)
+MpBC7@meta.data <- cbind(MpBC7@meta.data, annotation_MpBC7)
+MpBC8@meta.data <- cbind(MpBC8@meta.data, annotation_MpBC8)
+
+MpBC9@meta.data <- cbind(MpBC9@meta.data, annotation_MpBC9)
+MpBC10@meta.data <- cbind(MpBC10@meta.data, annotation_MpBC10)
+MpBC11@meta.data <- cbind(MpBC11@meta.data, annotation_MpBC11)
+MpBC13@meta.data <- cbind(MpBC13@meta.data, annotation_MpBC13)
+MpBC14@meta.data <- cbind(MpBC14@meta.data, annotation_MpBC14)
+MpBC15@meta.data <- cbind(MpBC15@meta.data, annotation_MpBC15)
+MpBC16@meta.data <- cbind(MpBC16@meta.data, annotation_MpBC16)
+```
+
+```{r}
+unique_barcode_MpBC1 <- paste0(rownames(MpBC1@meta.data), "_MpBC1")
+unique_barcode_MpBC2 <- paste0(rownames(MpBC2@meta.data), "_MpBC2")
+unique_barcode_MpBC3 <- paste0(rownames(MpBC3@meta.data), "_MpBC3")
+unique_barcode_MpBC4 <- paste0(rownames(MpBC3@meta.data), "_MpBC4")
+unique_barcode_MpBC5 <- paste0(rownames(MpBC5@meta.data), "_MpBC5")
+unique_barcode_MpBC6 <- paste0(rownames(MpBC6@meta.data), "_MpBC6")
+unique_barcode_MpBC7 <- paste0(rownames(MpBC7@meta.data), "_MpBC7")
+unique_barcode_MpBC8 <- paste0(rownames(MpBC8@meta.data), "_MpBC8")
+unique_barcode_MpBC9 <- paste0(rownames(MpBC9@meta.data), "_MpBC9")
+unique_barcode_MpBC10 <- paste0(rownames(MpBC10@meta.data), "_MpBC10")
+unique_barcode_MpBC11 <- paste0(rownames(MpBC11@meta.data), "_MpBC11")
+unique_barcode_MpBC13 <- paste0(rownames(MpBC13@meta.data), "_MpBC13")
+unique_barcode_MpBC14 <- paste0(rownames(MpBC14@meta.data), "_MpBC14")
+unique_barcode_MpBC15 <- paste0(rownames(MpBC15@meta.data), "_MpBC15")
+unique_barcode_MpBC16 <- paste0(rownames(MpBC16@meta.data), "_MpBC16")
+
+MpBC1@meta.data$orig.ident <- "MpBC1"
+MpBC2@meta.data$orig.ident <- "MpBC2"
+MpBC3@meta.data$orig.ident <- "MpBC3"
+MpBC4@meta.data$orig.ident <- "MpBC4"
+MpBC5@meta.data$orig.ident <- "MpBC5"
+MpBC6@meta.data$orig.ident <- "MpBC6"
+MpBC7@meta.data$orig.ident <- "MpBC7"
+MpBC8@meta.data$orig.ident <- "MpBC8"
+MpBC9@meta.data$orig.ident <- "MpBC9"
+MpBC10@meta.data$orig.ident <- "MpBC10"
+MpBC11@meta.data$orig.ident <- "MpBC11"
+MpBC13@meta.data$orig.ident <- "MpBC13"
+MpBC14@meta.data$orig.ident <- "MpBC14"
+MpBC15@meta.data$orig.ident <- "MpBC15"
+MpBC16@meta.data$orig.ident <- "MpBC16"
+
+MpBC1@meta.data <- cbind(MpBC1@meta.data, unique_barcode_MpBC1)
+MpBC2@meta.data <- cbind(MpBC2@meta.data, unique_barcode_MpBC2)
+MpBC3@meta.data <- cbind(MpBC3@meta.data, unique_barcode_MpBC3)
+MpBC4@meta.data <- cbind(MpBC4@meta.data, unique_barcode_MpBC4)
+MpBC5@meta.data <- cbind(MpBC5@meta.data, unique_barcode_MpBC5)
+MpBC6@meta.data <- cbind(MpBC6@meta.data, unique_barcode_MpBC6)
+MpBC7@meta.data <- cbind(MpBC7@meta.data, unique_barcode_MpBC7)
+MpBC8@meta.data <- cbind(MpBC8@meta.data, unique_barcode_MpBC8)
+MpBC9@meta.data <- cbind(MpBC9@meta.data, unique_barcode_MpBC9)
+MpBC10@meta.data <- cbind(MpBC10@meta.data, unique_barcode_MpBC10)
+MpBC11@meta.data <- cbind(MpBC11@meta.data, unique_barcode_MpBC11)
+MpBC13@meta.data <- cbind(MpBC13@meta.data, unique_barcode_MpBC13)
+MpBC14@meta.data <- cbind(MpBC14@meta.data, unique_barcode_MpBC14)
+MpBC15@meta.data <- cbind(MpBC15@meta.data, unique_barcode_MpBC15)
+MpBC16@meta.data <- cbind(MpBC16@meta.data, unique_barcode_MpBC16)
+
+Dataframe_MpBC1 <- MpBC1@meta.data
+Dataframe_MpBC2 <- MpBC2@meta.data
+Dataframe_MpBC3 <- MpBC3@meta.data
+Dataframe_MpBC4 <- MpBC4@meta.data
+Dataframe_MpBC5 <- MpBC5@meta.data
+Dataframe_MpBC6 <- MpBC6@meta.data
+Dataframe_MpBC7 <- MpBC7@meta.data
+Dataframe_MpBC8 <- MpBC8@meta.data
+Dataframe_MpBC9 <- MpBC9@meta.data
+Dataframe_MpBC10 <- MpBC10@meta.data
+Dataframe_MpBC11 <- MpBC11@meta.data
+Dataframe_MpBC13 <- MpBC13@meta.data
+Dataframe_MpBC14 <- MpBC14@meta.data
+Dataframe_MpBC15 <- MpBC15@meta.data
+Dataframe_MpBC16 <- MpBC16@meta.data
+```
+
+
+
+
+
+
+# Visualisation du batch effect
+
+## Faire une PCA pour les données de patients annotées avec des cells "Chondroïd tumor" (voir s'il y a du batch effect)
+
+```{r}
+# On rename les colonnes et on en crée une nouvelle col avec les labels
+MpBC9_chondroid_df <- MpBC9@meta.data %>%
+  rename(nCount = nCount_MpBC9, nFeature = nFeature_MpBC9, unique_barcode = unique_barcode_MpBC9) %>%
+  filter(is.na(Annotations_new) == FALSE) %>% 
+  mutate(label = paste0(Annotations_new, "_MpBC9"))
+MpBC13_chondroid_df <- MpBC13@meta.data %>%
+  rename(nCount = nCount_MpBC13, nFeature = nFeature_MpBC13, unique_barcode = unique_barcode_MpBC13) %>%
+  filter(is.na(Annotations_new) == FALSE) %>% 
+  mutate(label = paste0(Annotations_new, "_MpBC13"))
+MpBC15_chondroid_df <- MpBC15@meta.data %>%
+  rename(nCount = nCount_MpBC15, nFeature = nFeature_MpBC15, unique_barcode = unique_barcode_MpBC15) %>%
+  filter(is.na(Annotations_new) == FALSE) %>% 
+  mutate(label = paste0(Annotations_new, "_MpBC15"))
+MpBC16_chondroid_df <- MpBC16@meta.data %>%
+  rename(nCount = nCount_MpBC16, nFeature = nFeature_MpBC16, unique_barcode = unique_barcode_MpBC16) %>%
+  filter(is.na(Annotations_new) == FALSE) %>% 
+  mutate(label = paste0(Annotations_new, "_MpBC16"))
+
+# Fusion des dataframes
+chondroid_all_df <- bind_rows(
+  MpBC9_chondroid_df,
+  MpBC13_chondroid_df,
+  MpBC15_chondroid_df,
+  MpBC16_chondroid_df
+)
+
+pca_chondroid <- prcomp(chondroid_all_df[, c("nCount", "nFeature")], scale. = TRUE)
+
+
+plot <- ggplot(chondroid_all_df, aes(x = pca_chondroid$x[,1], y = pca_chondroid$x[,2], color = Annotations_new, shape = orig.ident)) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("red", "blue", "green", "purple", "orange")) +
+  scale_shape_manual(values = c(15, 16, 17, 18)) +
+  labs(x = "PC1", y = "PC2", color = "Types cellulaires", title="PCA des sample annotées avec des 'Chondroïd tumor'",) +
+  theme_minimal()
+plot
+
+# ggsave(plot, filename = "PCA_chondroid.png", bg = "white")
+
+
+# autoplot(pca_chondroid, data = chondroid_all_df, colour = 'Annotations_new', shape = 'orig.ident', label = TRUE) + 
+#   theme_minimal() + 
+#   ggtitle("PCA des données annotées 'Chondroïd tumor'")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Ancien code :
+# -------------
+
+
+# plot(axeX,axeY,pch=16);grid()
+
+# MpBC_shape <- c("MpBC9" = 15, "MpBC13" = 16, "MpBC15" = 17, "MpBC16" = 18)
+# cells_colors <- c("Normal Mesenchyme" = "red", "Epithelial tumor" = "blue", "Chondroid tumor" = "green", "Epithelial/Mesenchymal tumor" = "purple", "Normal Epithelium" = "orange")
+
+
+# # On met la colonne 'orig.ident' en facteur pour l'identifier dans la fusion
+# chondroid_all_df$orig.ident <- factor(chondroid_all_df$orig.ident, levels = c("MpBC9", "MpBC13", "MpBC15", "MpBC16"))
+# chondroid_all_df$Annotations_new <- factor(chondroid_all_df$Annotations_new, levels = c("Normal Mesenchyme", "Epithelial tumor", "Chondroid tumor", "Epithelial/Mesenchymal tumor", "Normal Epithelium"))
+
+# # PCA
+# pca_chondroid <- prcomp(chondroid_all_df[, c("nCount", "nFeature")], scale. = TRUE)
+# 
+# # Visualisation avec les couleurs en fonction de cells_colors et des formes en fonction de MpBC_shape
+# ggplot(data = data.frame(pca_chondroid$x), aes(x = PC1, y = PC2, color = chondroid_all_df$orig.ident)) +
+#   geom_point(size = 3) +
+#   scale_color_manual(values = cells_colors) +
+#   scale_shape_manual(values = MpBC_shape) +
+#   labs(x = "PC1", y = "PC2", color = "Types de MPBC", title="PCA des données annotées 'Chondroïd tumor'",) +
+#   theme_minimal()
+
+# Effectuer la PCA sur les variables numériques
+# # Construire un dataframe avec les résultats de la PCA et les métadonnées
+# pca_df <- data.frame(pca_chondroid$x) %>%
+#   mutate(
+#     orig.ident = chondroid_all_df$orig.ident,  # Associer les échantillons
+#     Annotations_new = chondroid_all_df$Annotations_new  # Associer les types cellulaires
+#   )
+# 
+# # Visualisation PCA
+# ggplot(pca_df, aes(x = PC1, y = PC2, color = Annotations_new, shape = orig.ident)) +
+#   geom_point(size = 3) +
+#   scale_color_manual(values = cells_colors) +  # Associer les couleurs aux types cellulaires
+#   scale_shape_manual(values = MpBC_shape) +  # Associer les formes aux échantillons
+#   labs(
+#     x = "PC1", 
+#     y = "PC2", 
+#     color = "Type cellulaire", 
+#     shape = "Échantillon MpBC",
+#     title = "PCA des données annotées 'Chondroïd tumor'"
+#   ) +
+#   theme_minimal()
+# 
+
+
+
+
+```
+
+On decompose selon chaque patient
+
+```{r}
+ggplot(chondroid_all_df, aes(x = pca_chondroid$x[,1], y = pca_chondroid$x[,2], 
+                             color = Annotations_new, shape = orig.ident)) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("red", "blue", "green", "purple", "orange")) +
+  scale_shape_manual(values = c(15, 16, 17, 18)) +
+  labs(x = "PC1", y = "PC2", color = "Types cellulaires", shape = "Sample",
+       title = "PCA des samples annotés avec 'Chondroïd tumor'") +
+  theme_minimal() +
+  facet_wrap(~ orig.ident)  # Facet par échantillon
+
+```
+On decompose selon chaque types cellulaires
+
+```{r}
+ggplot(chondroid_all_df, aes(x = pca_chondroid$x[,1], y = pca_chondroid$x[,2], 
+                             color = orig.ident, shape = orig.ident)) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("black", "blue", "green", "purple")) +  # Changer si nécessaire
+  scale_shape_manual(values = c(15, 16, 17, 18)) +
+  labs(x = "PC1", y = "PC2", color = "Sample", shape = "Sample",
+       title = "PCA des samples annotés avec 'Chondroïd tumor'") +
+  theme_minimal() +
+  facet_wrap(~ Annotations_new)  # Facet par type cellulaire
+
+```
+
+==> Il semble y avoir un peu de batch effect (notamment pour les Chondroid tumor) ==> La localisation des points sont différentes pour selon les patients...
+
+```{r}
+# Qualité de la PCA
+summary(pca_chondroid)
+```
+
+## On test en faisant une UMAP + Harmony
+
+```{r}
+chondroid.data <- chondroid_all_df[, c("nCount", "nFeature")]
+chondroid.labels <- chondroid_all_df$label
+
+library(umap)
+chondroid.umap <- umap(chondroid.data)
+```
+
+```{r}
+chondroid_all_df$UMAP1 <- chondroid.umap$layout[,1]
+chondroid_all_df$UMAP2 <- chondroid.umap$layout[,2]
+```
+
+```{r}
+ggplot(chondroid_all_df, aes(x = UMAP1, y = UMAP2, color = orig.ident)) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  labs(title = "UMAP des cellules", x = "UMAP1", y = "UMAP2")
+
+```
+
+```{r}
+ggplot(chondroid_all_df, aes(x = UMAP1, y = UMAP2, color = Annotations_new, shape = orig.ident)) +
+  geom_point(size = 3) +
+  theme_minimal() +
+  scale_shape_manual(values = c(15, 16, 17, 18)) +  # Formes personnalisées
+  labs(title = "UMAP des cellules avec formes par échantillon", x = "UMAP1", y = "UMAP2")
+
+```
+
+```{r}
+ggplot(chondroid_all_df, aes(x = UMAP1, y = UMAP2, color = Annotations_new)) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  facet_wrap(~ orig.ident) +  # Facet par échantillon
+  labs(title = "UMAP séparé par échantillon", x = "UMAP1", y = "UMAP2")
+
+```
+
+```{r}
+ggplot(chondroid_all_df, aes(x = UMAP1, y = UMAP2, color = orig.ident)) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  facet_wrap(~ Annotations_new) +  # Facet par échantillon
+  labs(title = "UMAP séparé par types cellulaires", x = "UMAP1", y = "UMAP2")
+
+```
+
+### Correction du batch effect avec harmony
+
+```{r}
+library(harmony)
+
+# Correction du batch
+harmony_pca <- HarmonyMatrix(pca_chondroid$x, meta_data = chondroid_all_df, vars_use = "orig.ident")
+
+# UMAP avec les PCA harmonisés
+umap_results <- umap(harmony_pca)
+
+# On ajoute les résultats au dataframe
+chondroid_all_df$UMAP1_corrected <- umap_results$layout[,1]
+chondroid_all_df$UMAP2_corrected <- umap_results$layout[,2]
+```
+```{r}
+# Visualisation avec ggplot2
+ggplot(chondroid_all_df, aes(x = UMAP1_corrected, y = UMAP2_corrected, color = Annotations_new)) +
+  geom_point(size = 2) +
+  facet_wrap(~ orig.ident) +  # Facet par échantillon
+  theme_minimal() + 
+  ggtitle("UMAP harmonisé par échantillon")
+```
+# Version avec Réduction de dimension avec Normalisation, selection de variables, contrôle du batch effect...
+
+```{r}
+MpBC9 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC9"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC9 <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC9/Annotations_MpBC9_new.csv"), row.names = 1)
+annotation_MpBC9 <- annotation_MpBC9[rownames(MpBC9@meta.data), , drop = FALSE]
+MpBC9@meta.data <- cbind(MpBC9@meta.data, annotation_MpBC9)
+
+MpBC13 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC13"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC13 <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC13/Annotations_MpBC13_new.csv"), row.names = 1)
+annotation_MpBC13 <- annotation_MpBC13[rownames(MpBC13@meta.data), , drop = FALSE]
+MpBC13@meta.data <- cbind(MpBC13@meta.data, annotation_MpBC13)
+
+MpBC15 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC15"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC15 <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC15/Annotations_MpBC15_new.csv"), row.names = 1)
+annotation_MpBC15 <- annotation_MpBC15[rownames(MpBC15@meta.data), , drop = FALSE]
+MpBC15@meta.data <- cbind(MpBC15@meta.data, annotation_MpBC15)
+
+MpBC16 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC16"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC16 <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC16/Annotations_MpBC16_new.csv"), row.names = 1)
+annotation_MpBC16 <- annotation_MpBC16[rownames(MpBC16@meta.data), , drop = FALSE]
+MpBC16@meta.data <- cbind(MpBC16@meta.data, annotation_MpBC16)
+
+
+
+# # Normaliser les données
+# MpBC9 <- NormalizeData(MpBC9)
+# MpBC13 <- NormalizeData(MpBC13)
+# MpBC15 <- NormalizeData(MpBC15)
+# MpBC16 <- NormalizeData(MpBC16)
+
+"MpBC9" -> MpBC9@meta.data$orig.ident
+"MpBC13" -> MpBC13@meta.data$orig.ident
+"MpBC15" -> MpBC15@meta.data$orig.ident
+"MpBC16" -> MpBC16@meta.data$orig.ident
+
+merged_seurat <- merge(MpBC9, y = list(MpBC13, MpBC15, MpBC16), add.cell.ids = c("MpBC9", "MpBC13", "MpBC15", "MpBC16"))
+
+# Convertir les données dans orig.ident en facteur
+merged_seurat$orig.ident <- factor(merged_seurat$orig.ident, levels = c("MpBC9", "MpBC13", "MpBC15", "MpBC16"))
+
+# Filtrer les NAs dans Annotations_new
+merged_seurat <- merged_seurat %>% subset(Annotations_new != "NA")
+
+# # Sélection des gènes les plus variables
+# merged_seurat <- FindVariableFeatures(merged_seurat, selection.method = "vst", nfeatures = 2000)
+# 
+# # Mise à l’échelle des données
+# merged_seurat <- ScaleData(merged_seurat)
+
+# Remplace le Normalize, Find & ScaleData (et plus adapté)
+merged_seurat <- SCTransform(merged_seurat,
+                             vst.flavor = "v2",
+                             assay = "Spatial", 
+                             do.scale = FALSE, 
+                             do.center = TRUE, 
+                             verbose = TRUE,
+                             variable.features.n = 3000)
+
+# do.scale -> Pour scale les données et avoir une variance unitaire. FALSE par defaut
+# variable.features.n -> Nombre de gènes à sélectionner pour la normalisation. 3000 par defaut. A faire varier !!!
+# 2000 c'est un peu beaucoup selon Pierre, essayer avec 200
+```
+
+### Visualisation de la PCA
+```{r}
+# Réduction de dimension PCA
+merged_seurat <- RunPCA(merged_seurat, npcs = 30)
+```
+```{r}
+ElbowPlot(merged_seurat, reduction = "pca")
+```
+```{r}
+DimPlot(merged_seurat, group.by = "Annotations_new", split.by = "orig.ident", reduction = "pca", label = T)
+```
+
+### Visualisation du t-SNE
+```{r}
+# Réduction de dimension t-SNE
+merged_seurat <- RunTSNE(merged_seurat, dims = 1:30)
+```
+```{r}
+DimPlot(merged_seurat, group.by = "Annotations_new", split.by = "orig.ident", reduction = "tsne", label = T)
+```
+
+### Visualisation de l'UMAP
+```{r}
+# Réduction de dimension UMAP
+merged_seurat <- RunUMAP(merged_seurat, dims = 1:30)
+```
+```{r}
+DimPlot(merged_seurat, group.by = "Annotations_new", split.by = "orig.ident", reduction = "umap", label = T)
+```
+
+### Correction du batch effect avec Harmony
+```{r}
+# Correction du batch
+# merged_seurat <- HarmonyMatrix(merged_seurat, group.by.vars = "orig.ident")
+merged_seurat <- RunHarmony(merged_seurat,
+                            group.by.vars = "orig.ident",
+                            theta = 4,
+                            lambda = 2,
+                            sigma = 0.2)
+
+# theta : Contrôle la force de correction des effets de batch.
+# Valeur par défaut : 2 (modérée).
+# Augmenter (theta = 4-6) si les effets de batch sont très forts.
+# Diminuer (theta = 1) si les corrections sont trop agressives
+
+# lambda : Régularise l'effet de batch pour éviter une correction trop brutale.
+# Valeur par défaut : 1.
+# Augmenter la valeur (lambda = 2-3) pour éviter une surcorrection
+
+# sigma : Définit le lissage appliqué à la correction des batches.
+# Valeur par défaut : 0.1.
+# Si les batches sont très différents,augmenter à 0.2-0.3
+```
+```{r}
+# Réduction de dimension 
+DimPlot(merged_seurat, 
+        group.by = "Annotations_new",
+        split.by = "orig.ident",
+        reduction = "harmony",
+        label = F)
+```
+```{r}
+merged_seurat <- RunUMAP(merged_seurat, 
+                         reduction = "harmony", 
+                         dims = 1:30, 
+                         n.neighbors = 10, 
+                         min.dist = 0.5, 
+                         spread = 1,
+                         )
+
+# n.components -> En combien de dimension réduire
+# n.neighbors -> [5:50] Plus il est petit, plus on preserve les structures locales au detriment de la sturcture globale. Plus il est grand, plus on preserve la structure globale au detriment des structures locales
+# min.dist -> 
+# spread -> 
+
+
+DimPlot(merged_seurat,
+        pt.size = 2,
+        reduction = "umap",
+        group.by = "Annotations_new",
+        shape.by = "orig.ident")
+```
+```{r}
+merged_seurat <- RunUMAP(merged_seurat,
+                         reduction = "harmony",
+                         dims = 1:30,
+                         n.neighbors = 25)
+DimPlot(merged_seurat,
+        pt.size = 2,
+        reduction = "umap",
+        group.by = "Annotations_new", 
+        split.by = "orig.ident")
+```
+
+```{r}
+merged_seurat <- RunUMAP(merged_seurat,
+                         reduction = "harmony",
+                         dims = 1:30,
+                         n.neighbors = 40,
+                         min.dist = 0.5,
+                         spread = 1)
+DimPlot(merged_seurat,
+        pt.size = 1,
+        reduction = "umap",
+        group.by = "Annotations_new",
+        split.by = "orig.ident", 
+        label = T,
+        label.size = 4)
+        
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+library(Seurat)
+library(purrr)
+library(dplyr)
+library(ggplot2)
+library(patchwork) # Pour combiner les graphiques
+
+# Définition de la grille de paramètres
+param_grid <- cross_df(list(
+  n_neighbors = c(10, 30, 40),
+  min_dist = c(0.1, 0.3, 0.5),
+  spread = c(1, 1.5)
+))
+
+# Fonction pour appliquer RunUMAP avec des paramètres variables
+run_umap <- function(n_neighbors, min_dist, spread, seurat_obj) {
+  seurat_obj <- RunUMAP(seurat_obj, 
+                        reduction = "harmony", 
+                        dims = 1:30, 
+                        n.neighbors = n_neighbors, 
+                        min.dist = min_dist, 
+                        spread = spread)
+  return(seurat_obj)
+}
+
+# Appliquer la fonction sur toutes les combinaisons de paramètres avec pmap()
+umap_results <- param_grid %>%
+  mutate(seurat_obj = pmap(list(n_neighbors, min_dist, spread), run_umap, seurat_obj = merged_seurat))
+```
+```{r}
+# Créer des graphiques pour chaque combinaison de paramètres
+plots <- map2(umap_results$seurat_obj, 1:nrow(param_grid), function(seurat_obj, idx) {
+  DimPlot(seurat_obj, pt.size = 2, reduction = "umap", 
+          group.by = "Annotations_new", split.by = "orig.ident") +
+    ggtitle(paste("n_neighbors:", umap_results$n_neighbors[[idx]], 
+                  "min_dist:", umap_results$min_dist[[idx]], 
+                  "spread:", umap_results$spread[[idx]])) +
+    theme(plot.title = element_text(size = 10))
+})
+
+# Combiner tous les graphiques en une seule figure
+combined_plot <- wrap_plots(plots, ncol = 1)  # Affiche 3 graphiques par ligne
+
+# Afficher la figure combinée
+print(combined_plot)
+```
+```{r}
+for (p in plots) {
+  print(p)
+  Sys.sleep(1) # Pause de 1s entre chaque affichage
+}
+```
+
+# Tuner les paramètres pour avoir une belle UMAP (essayer avec une selection non pas de 3000 gèns mais beaucoup moins par exemple 200, normalisation avant fusion, high spread, low min_dist, high n_neighbors, assay = SCT...etc)
+
+```{r}
+MpBC9 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC9"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC9_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC9/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC9"))
+MpBC9@meta.data <- cbind(MpBC9@meta.data, annotation_MpBC9_with_unlabels)
+
+MpBC13 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC13"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC13 <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC13/Annotations_MpBC13_new.csv"), row.names = 1)
+annotation_MpBC13 <- annotation_MpBC13[rownames(MpBC13@meta.data), , drop = FALSE]
+MpBC13@meta.data <- cbind(MpBC13@meta.data, annotation_MpBC13)
+
+MpBC15 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC15"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC15 <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC15/Annotations_MpBC15_new.csv"), row.names = 1)
+annotation_MpBC15 <- annotation_MpBC15[rownames(MpBC15@meta.data), , drop = FALSE]
+MpBC15@meta.data <- cbind(MpBC15@meta.data, annotation_MpBC15)
+
+MpBC16 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC16"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC16 <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC16/Annotations_MpBC16_new.csv"), row.names = 1)
+annotation_MpBC16 <- annotation_MpBC16[rownames(MpBC16@meta.data), , drop = FALSE]
+MpBC16@meta.data <- cbind(MpBC16@meta.data, annotation_MpBC16)
+```
+
+```{r}
+
+
+# # Normaliser les données
+# ## Filtrer les NAs dans Annotations_new
+# MpBC9 <- MpBC9 %>% subset(Annotations_new != "NA")
+# MpBC9 <- SCTransform(MpBC9,
+#                      vst.flavor = "v2",
+#                      assay = "Spatial",
+#                      do.scale = FALSE,
+#                      do.center = TRUE,
+#                      verbose = FALSE)
+# 
+# ## Filtrer les NAs dans Annotations_new
+# MpBC13 <- MpBC13 %>% subset(Annotations_new != "NA")
+# MpBC13 <- SCTransform(MpBC13,
+#                       vst.flavor = "v2",
+#                       assay = "Spatial",
+#                       do.scale = FALSE,
+#                       do.center = TRUE,
+#                       verbose = FALSE)
+# 
+# ## Filtrer les NAs dans Annotations_new
+# MpBC15 <- MpBC15 %>% subset(Annotations_new != "NA")
+# MpBC15 <- SCTransform(MpBC15,
+#                       vst.flavor = "v2",
+#                       assay = "Spatial",
+#                       do.scale = FALSE,
+#                       do.center = TRUE,
+#                       verbose = FALSE)
+# 
+# ## Filtrer les NAs dans Annotations_new
+# MpBC16 <- MpBC16 %>% subset(Annotations_new != "NA")
+# MpBC16 <- SCTransform(MpBC16,
+#                       vst.flavor = "v2",
+#                       assay = "Spatial",
+#                       do.scale = FALSE,
+#                       do.center = TRUE,
+#                       verbose = FALSE)
+# 
+# "MpBC9" -> MpBC9@meta.data$orig.ident
+# "MpBC13" -> MpBC13@meta.data$orig.ident
+# "MpBC15" -> MpBC15@meta.data$orig.ident
+# "MpBC16" -> MpBC16@meta.data$orig.ident
+
+merged_seurat <- merge(MpBC9, y = list(MpBC13, MpBC15, MpBC16), add.cell.ids = c("MpBC9", "MpBC13", "MpBC15", "MpBC16"))
+
+# Convertir les données dans orig.ident en facteur
+merged_seurat$orig.ident <- factor(merged_seurat$orig.ident, levels = c("MpBC9", "MpBC13", "MpBC15", "MpBC16"))
+
+merged_seurat <- subset(merged_seurat, nCount_Spatial > 0)
+
+# Filtrer les NAs dans Annotations_new
+merged_seurat <- merged_seurat %>% subset(Annotations_new != "" & Annotations_new != "Cluster 1" & Annotations_new != "Cluster 3")
+
+
+# # Sélection des gènes les plus variables
+# merged_seurat <- FindVariableFeatures(merged_seurat, selection.method = "vst", nfeatures = 2000)
+# 
+# # Mise à l’échelle des données
+# merged_seurat <- ScaleData(merged_seurat)
+
+# Remplace le Normalize, Find & ScaleData (et plus adapté)
+merged_seurat <- SCTransform(merged_seurat,
+                             vst.flavor = "v2",
+                             assay = "Spatial",
+                             do.scale = FALSE,
+                             do.center = TRUE,
+                             verbose = TRUE,
+                             n_genes = 100)
+
+# do.scale -> Pour scale les données et avoir une variance unitaire. FALSE par defaut
+# variable.features.n -> Nombre de gènes à sélectionner pour la normalisation. 3000 par defaut. A faire varier !!!
+# 2000 c'est beaucoup selon Pierre, essayer avec 200
+```
+### Run PCA
+```{r}
+# # Trouver les 100 features les plus variables
+# variable.features <- SelectIntegrationFeatures(object.list = list(merged_seurat), nfeatures = 100)
+# 
+# # Assigner ces features comme les features variables
+# VariableFeatures(merged_seurat) <- variable.features
+# 
+# # On fait la reduction de dimension en ne considerant que les 100 features les plus differentiellement exprimées
+# merged_seurat <- FindVariableFeatures(merged_seurat,
+#                                       assay = "SCT",
+#                                       selection.method = "vst", 
+#                                       nfeatures = 100)
+
+# Réduction de dimension PCA
+merged_seurat <- RunPCA(merged_seurat,
+                        assay = "SCT",
+                        npcs = 50)
+```
+### Correction du batch effect avec Harmony
+```{r}
+# Correction du batch
+# merged_seurat <- HarmonyMatrix(merged_seurat, group.by.vars = "orig.ident")
+merged_seurat <- RunHarmony(merged_seurat,
+                            group.by.vars = "orig.ident",
+                            theta = 2,
+                            lambda = 1,
+                            sigma = 0.1)
+
+# theta : Contrôle la force de correction des effets de batch.
+# Valeur par défaut : 2 (modérée).
+# Augmenter (theta = 4-6) si les effets de batch sont très forts.
+# Diminuer (theta = 1) si les corrections sont trop agressives
+
+# lambda : Régularise l'effet de batch pour éviter une correction trop brutale.
+# Valeur par défaut : 1.
+# Augmenter la valeur (lambda = 2-3) pour éviter une surcorrection
+
+# sigma : Définit le lissage appliqué à la correction des batches.
+# Valeur par défaut : 0.1.
+# Si les batches sont très différents, augmenter à 0.2-0.3
+```
+```{r}
+merged_seurat <- RunUMAP(merged_seurat,
+                         assay = "SCT",
+                         reduction = "harmony",
+                         dims = 1:30,
+                         n.neighbors = 40, 
+                         min.dist = 0.1,
+                         spread = 1.5)
+DimPlot(merged_seurat,
+        pt.size = 2,
+        reduction = "umap",
+        group.by = "Annotations_new", 
+        split.by = "orig.ident")
+```
+```{r}
+merged_seurat <- RunUMAP(merged_seurat,
+                         assay = "SCT",
+                         reduction = "harmony",
+                         dims = 1:10,
+                         n.neighbors = 40, 
+                         min.dist = 0.001,
+                         spread = 2)
+DimPlot(merged_seurat,
+        pt.size = 2,
+        reduction = "umap",
+        group.by = "Annotations_new",
+        shape.by = "orig.ident")
+```
+
+# On essaye la méthode d'intégration de Seurat pour plusieurs échantillons
+
+```{r}
+MpBC9 <- subset(MpBC9, nCount_Spatial > 0)
+MpBC13 <- subset(MpBC13, nCount_Spatial > 0)
+MpBC15 <- subset(MpBC15, nCount_Spatial > 0)
+MpBC16 <- subset(MpBC16, nCount_Spatial > 0)
+
+# # Normalisation avec SCTransform pour chaque patient
+sample_list <- list(MpBC9, MpBC13, MpBC15, MpBC16)  # Liste des Seurat objets
+
+sample_list <- lapply(sample_list, function(x) {
+  SCTransform(x, vst.flavor = "v2", assay = "Spatial", verbose = FALSE)
+})
+
+
+# Trouver les ancres pour aligner les échantillons 
+features <- SelectIntegrationFeatures(object.list = sample_list, nfeatures = 3000)
+
+common_features <- Reduce(intersect, lapply(sample_list, function(x) rownames(x@assays$SCT@scale.data)))
+features <- intersect(features, common_features)
+
+
+sample_list <- PrepSCTIntegration(object.list = sample_list, anchor.features = features)
+anchors <- FindIntegrationAnchors(object.list = sample_list, normalization.method = "SCT", anchor.features = features)
+
+# Intégration des données
+merged_seurat <- IntegrateData(anchorset = anchors, normalization.method = "SCT")
+
+```
+
+
+# Maintenant on va faire la UMAP mais avec tous les patients (pas seulement les patients avec des cells 'Chondroid tumor')
+
+## Load des données 10X (matrice de comptage) et des annotations
+
+```{r}
+dir_path <- "/mnt/datadisk/Jordan/Data/"
+
+# Liste des échantillons
+samples <- c("Visium_MpBC_batch1/Mp_BC1", "Visium_MpBC_batch1/Mp_BC2", "Visium_MpBC_batch1/Mp_BC3", 
+             "Visium_MpBC_batch1/Mp_BC4", "Visium_MpBC_batch1/Mp_BC5", "Visium_MpBC_batch1/Mp_BC6", 
+             "Visium_MpBC_batch1/Mp_BC7", "Visium_MpBC_batch1/Mp_BC8", "Visium_MpBC_batch2/MpBC9", 
+             "Visium_MpBC_batch2/MpBC10", "Visium_MpBC_batch2/MpBC11", "Visium_MpBC_batch2/MpBC13", 
+             "Visium_MpBC_batch2/MpBC14", "Visium_MpBC_batch2/MpBC15", "Visium_MpBC_batch2/MpBC16")
+
+# Charger les données
+
+## MpBC1
+## -----
+### On load les données 10X Sptiale
+MpBC1 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC1"), filename = "filtered_feature_bc_matrix.h5")
+### On load les annotations (avec les spots non annotés)
+annotation_MpBC1_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC1/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC1"))    # Add MpBC1 to Barcode column
+### On ajoute les annotations aux meta.data
+MpBC1@meta.data <- cbind(MpBC1@meta.data, annotation_MpBC1_with_unlabels)
+
+## MpBC2
+## -----
+MpBC2 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC2"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC2_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC2/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC2"))
+MpBC2@meta.data <- cbind(MpBC2@meta.data, annotation_MpBC2_with_unlabels)
+
+## MpBC3
+## -----
+MpBC3 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC3"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC3_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC3/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC3"))
+MpBC3@meta.data <- cbind(MpBC3@meta.data, annotation_MpBC3_with_unlabels)
+
+## MpBC4
+## -----
+MpBC4 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC4"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC4_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC4/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC4"))
+MpBC4@meta.data <- cbind(MpBC4@meta.data, annotation_MpBC4_with_unlabels)
+
+## MpBC5
+## -----
+MpBC5 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC5"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC5_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC5/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC5"))
+MpBC5@meta.data <- cbind(MpBC5@meta.data, annotation_MpBC5_with_unlabels)
+
+## MpBC6
+## -----
+MpBC6 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC6"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC6_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC6/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC6"))
+MpBC6@meta.data <- cbind(MpBC6@meta.data, annotation_MpBC6_with_unlabels)
+
+## MpBC7
+## -----
+MpBC7 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC7"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC7_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC7/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC7"))
+MpBC7@meta.data <- cbind(MpBC7@meta.data, annotation_MpBC7_with_unlabels)
+
+## MpBC8
+## -----
+MpBC8 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch1/Mp_BC8"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC8_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch1/Mp_BC8/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC8"))
+MpBC8@meta.data <- cbind(MpBC8@meta.data, annotation_MpBC8_with_unlabels)
+
+## MpBC9
+## -----
+MpBC9 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC9"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC9_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC9/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC9"))
+MpBC9@meta.data <- cbind(MpBC9@meta.data, annotation_MpBC9_with_unlabels)
+
+## MpBC10
+## ------
+MpBC10 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC10"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC10_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC10/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC10"))
+MpBC10@meta.data <- cbind(MpBC10@meta.data, annotation_MpBC10_with_unlabels)
+
+## MpBC11
+## ------
+MpBC11 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC11"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC11_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC11/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC11"))
+MpBC11@meta.data <- cbind(MpBC11@meta.data, annotation_MpBC11_with_unlabels)
+
+## MpBC13
+## ------
+MpBC13 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC13"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC13_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC13/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC13"))
+MpBC13@meta.data <- cbind(MpBC13@meta.data, annotation_MpBC13_with_unlabels)
+
+## MpBC14
+## ------
+MpBC14 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC14"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC14_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC14/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC14"))
+MpBC14@meta.data <- cbind(MpBC14@meta.data, annotation_MpBC14_with_unlabels)
+
+## MpBC15
+## ------
+MpBC15 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC15"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC15_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC15/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC15"))
+MpBC15@meta.data <- cbind(MpBC15@meta.data, annotation_MpBC15_with_unlabels)
+
+## MpBC16
+## ------
+MpBC16 <- Load10X_Spatial(data.dir = paste0(dir_path, "Visium_MpBC_batch2/MpBC16"), filename = "filtered_feature_bc_matrix.h5")
+annotation_MpBC16_with_unlabels <- read.csv(paste0(dir_path, "Visium_MpBC_batch2/MpBC16/Annotations_new_with_unlabels.csv")) %>%
+  mutate(Barcode = paste0(Barcode, "-MpBC16"))
+MpBC16@meta.data <- cbind(MpBC16@meta.data, annotation_MpBC16_with_unlabels)
+
+# MpBC10 et MpBC16 n'ont pas au total 4992 barcodes/cellules/spots (annotées ou non) alors que les autres samples si ??? ==> Étrange, problème de séquençage ??? ==> En fait c'est nomal car certains certaines tumeurs petites et certains spots n'ont pas été séquencé car il n'y avait rien à séquencer
+
+"MpBC1" -> MpBC1@meta.data$orig.ident
+"MpBC2" -> MpBC2@meta.data$orig.ident
+"MpBC3" -> MpBC3@meta.data$orig.ident
+"MpBC4" -> MpBC4@meta.data$orig.ident
+"MpBC5" -> MpBC5@meta.data$orig.ident
+"MpBC6" -> MpBC6@meta.data$orig.ident
+"MpBC7" -> MpBC7@meta.data$orig.ident
+"MpBC8" -> MpBC8@meta.data$orig.ident
+"MpBC9" -> MpBC9@meta.data$orig.ident
+"MpBC10" -> MpBC10@meta.data$orig.ident
+"MpBC11" -> MpBC11@meta.data$orig.ident
+"MpBC13" -> MpBC13@meta.data$orig.ident
+"MpBC14" -> MpBC14@meta.data$orig.ident
+"MpBC15" -> MpBC15@meta.data$orig.ident
+"MpBC16" -> MpBC16@meta.data$orig.ident
+```
+
+## On merge les objet en un seul et on Normalise, Scale cet objet (SCTransform)
+```{r}
+
+
+merged_seurat <- merge(MpBC1, y = list(MpBC2, MpBC3, MpBC4, MpBC5, MpBC6, MpBC7, MpBC8, MpBC9, MpBC10, MpBC11, MpBC13, MpBC14, MpBC15, MpBC16), add.cell.ids = c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16"))
+
+# Convertir les données dans orig.ident en facteur
+merged_seurat$orig.ident <- factor(merged_seurat$orig.ident, levels = c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16"))
+
+# Filtrer les NAs dans Annotations_new
+# merged_seurat <-  subset(merged_seurat, Annotations_new != "NA")
+
+# Filtrer les 0 dans la matrice de comptage (car comme j'utilise la version des annotations avec les spot unlabels, j'ai des spots où il n'y avait pas de cellule et donc des comtes = 0, or lors de la normalisation log(0) = -Inf ==> Erreur). Donc on filter ou les comptes < 0 !
+merged_seurat <- subset(merged_seurat, nCount_Spatial > 0)
+
+
+# Remplace le Normalize, Find & ScaleData (et plus adapté)
+merged_seurat <- SCTransform(merged_seurat,
+                             vst.flavor = "v2",
+                             assay = "Spatial",
+                             do.scale = FALSE,
+                             do.center = TRUE,
+                             verbose = TRUE,
+                             variable.features.n = 500)
+```
+```{r}
+# saveRDS(merged_seurat, file = "merged_seurat.rds")
+merged_seurat <- readRDS("merged_seurat.rds")
+```
+
+## Run PCA
+```{r}
+# # Trouver les 100 features les plus variables
+# variable.features <- SelectIntegrationFeatures(object.list = list(merged_seurat), nfeatures = 100)
+# 
+# # Assigner ces features comme les features variables
+# VariableFeatures(merged_seurat) <- variable.features
+# 
+# # On fait la reduction de dimension en ne considerant que les 100 features les plus differentiellement exprimées
+# merged_seurat <- FindVariableFeatures(merged_seurat,
+#                                       assay = "SCT",
+#                                       selection.method = "vst", 
+#                                       nfeatures = 100)
+
+# Réduction de dimension PCA
+merged_seurat <- RunPCA(merged_seurat,
+                        assay = "SCT",
+                        npcs = 50)
+```
+
+## Correction du batch effect avec Harmony
+```{r}
+# Correction du batch
+# merged_seurat <- HarmonyMatrix(merged_seurat, group.by.vars = "orig.ident")
+merged_seurat <- RunHarmony(merged_seurat,
+                            group.by.vars = "orig.ident",
+                            theta = 2,
+                            lambda = 1,
+                            sigma = 0.1)
+
+# theta : Contrôle la force de correction des effets de batch.
+# Valeur par défaut : 2 (modérée).
+# Augmenter (theta = 4-6) si les effets de batch sont très forts.
+# Diminuer (theta = 1) si les corrections sont trop agressives
+
+# lambda : Régularise l'effet de batch pour éviter une correction trop brutale.
+# Valeur par défaut : 1.
+# Augmenter la valeur (lambda = 2-3) pour éviter une surcorrection
+
+# sigma : Définit le lissage appliqué à la correction des batches.
+# Valeur par défaut : 0.1.
+# Si les batches sont très différents, augmenter à 0.2-0.3
+```
+
+```{r}
+merged_seurat <- RunUMAP(merged_seurat,
+                         assay = "SCT",
+                         reduction = "harmony",
+                         dims = 1:30,
+                         n.neighbors = 50, 
+                         min.dist = 0.01,
+                         spread = 1)
+DimPlot(merged_seurat,
+        pt.size = 1,
+        reduction = "umap",
+        group.by = "Annotations_new")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Après avoir une belle UMAP, on fait une recherche de cluster avec FindClusters
+
+### Calcul des clusters
+```{r}
+merged_seurat <- FindNeighbors(merged_seurat, dims = 1:30)
+merged_seurat <- FindClusters(merged_seurat, resolution = 0.1, algorithm = 4)
+# Jouer avec la resolution pour voir si on peut mieux séparer les clusters
+```
+```{r}
+DimPlot(merged_seurat, reduction = "umap", group.by = "seurat_clusters", split.by = "orig.ident")
+```

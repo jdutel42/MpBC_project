@@ -1,0 +1,123 @@
+---
+title: "First_script"
+author: "J Dutel"
+date: "2025-02-03"
+output: html_document
+---
+
+# On load les librairies
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(Seurat)
+library(SeuratData)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+```
+
+# Load le dataset
+
+```{r 1}
+InstallData("stxBrain")
+brain <- LoadData("stxBrain", type = "anterior1")
+```
+
+# Data preprocessing
+
+## Visualistion de la variance des données
+```{r 2.1}
+plot1 <- VlnPlot(brain, features = "nCount_Spatial", pt.size = 0.1) + NoLegend()
+plot2 <- SpatialFeaturePlot(brain, features = "nCount_Spatial") + theme(legend.position = "right")
+wrap_plots(plot1, plot2)
+```
+
+On voit qu'il y a de la variance totale dans les Spatial_Count est non négligeable, et que cette variance dépend de l'anatomie du tissu sur la coupe. On doit donc considerer cela lors de notre normalisation
+
+## Normalisation via SCTransform
+
+```{r 2.2}
+brain <- SCTransform(brain, assay = "Spatial", verbose = FALSE)
+```
+
+# Gene Expression Visualization
+
+```{r 3.1}
+SpatialFeaturePlot(brain, features = c("Hpca", "Ttr"))
+```
+
+```{r 3.2}
+p1 <- SpatialFeaturePlot(brain, features = "Ttr", pt.size.factor = 1)
+p2 <- SpatialFeaturePlot(brain, features = "Ttr", alpha = c(0.1, 1))
+p1 + p2
+```
+
+# Reduction de dimension, clustering & visualisation
+
+```{r 4.1}
+brain <- RunPCA(brain, assay = "SCT", verbose = FALSE)
+brain <- FindNeighbors(brain, reduction = "pca", dims = 1:30)
+brain <- FindClusters(brain, verbose = FALSE)
+brain <- RunUMAP(brain, reduction = "pca", dims = 1:30)
+```
+
+```{r 4.2}
+p1 <- DimPlot(brain, reduction = "umap", label = TRUE)
+p2 <- SpatialDimPlot(brain, label = TRUE, label.size = 3)
+p1 + p2
+```
+
+```{r 4.3}
+SpatialDimPlot(brain, cells.highlight = CellsByIdentities(object = brain, idents = c(2, 1, 4, 3,
+    5, 8)), facet.highlight = TRUE, ncol = 3)
+```
+
+```{r 4.4}
+SpatialDimPlot(brain, interactive = TRUE)
+```
+
+```{r 4.5}
+SpatialFeaturePlot(brain, features = "Ttr", interactive = TRUE)
+```
+
+```{r 4.6}
+LinkedDimPlot(brain)
+```
+
+# Identification of Spatially Variable Features 
+
+```{r 5.1}
+de_markers <- FindMarkers(brain, ident.1 = 5, ident.2 = 6)
+SpatialFeaturePlot(object = brain, features = rownames(de_markers)[1:3], alpha = c(0.1, 1), ncol = 3)
+```
+
+# Travailler avec plus d'1 slice 
+
+```{r 6.1}
+brain2 <- LoadData("stxBrain", type = "posterior1")
+brain2 <- SCTransform(brain2, assay = "Spatial", verbose = FALSE)
+```
+
+```{r 6.2}
+brain.merge <- merge(brain, brain2)
+```
+
+```{r 6.3}
+DefaultAssay(brain.merge) <- "SCT"
+VariableFeatures(brain.merge) <- c(VariableFeatures(brain), VariableFeatures(brain2))
+brain.merge <- RunPCA(brain.merge, verbose = FALSE)
+brain.merge <- FindNeighbors(brain.merge, dims = 1:30)
+brain.merge <- FindClusters(brain.merge, verbose = FALSE)
+brain.merge <- RunUMAP(brain.merge, dims = 1:30)
+DimPlot(brain.merge, reduction = "umap", group.by = c("ident", "orig.ident"))
+```
+
+```{r 6.4}
+SpatialDimPlot(brain.merge)
+```
+
+```{r 6.5}
+SpatialFeaturePlot(brain.merge, features = c("Hpca", "Plp1"))
+```
+

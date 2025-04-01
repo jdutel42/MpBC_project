@@ -1,0 +1,1160 @@
+---
+title: "Nabuchodonosor"
+author: "J Dutel"
+date: "2025-02-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(hdf5r)
+library(ggfortify)
+library(harmony)
+library(sctransform)
+library(viridis)
+library(stringr)
+library(viridisLite)
+library(patchwork)
+
+dir_path <- "/mnt/datadisk/Jordan/Data/"
+
+# Assigner des couleurs aux groupes en respectant la proximité biologique
+annotation_colors <- c(
+  "Chondroid tumor" = "#8B4513",          # Marron (cartilage)
+  "Epithelial tumor" = "#FF4500",         # Orange vif
+  "Epithelial/Mesenchymal tumor" = "#9400D3", # Violet profond (intermédiaire)
+  "Mesenchymal tumor" = "#1E90FF",        # Bleu intense
+  "Normal epithelium" = "#32CD32",        # Vert clair
+  "Normal mesenchyme" = "#00CED1",        # Turquoise
+  "Osteosarcomatoid tumor" = "black",   # Brun terreux
+  "Pleiomorphic tumor" = "#B22222",       # Rouge bordeaux
+  "Spindle cell tumor" = "#4682B4",       # Bleu acier
+  "Squamous tumor" = "grey"            # Rouge tomate
+)
+
+colors_old <- c(
+  "Chondroid tumour cells" = "#E6194B",
+  "Classical chondrosarcoma cells" = "#3CB44B",
+  "Epithelial tumor cells" = "#FFE119",
+  "Mesenchymal tumor cells" = "#4363D8",
+  "Mixoid chondrosarcoma cells" =  "#F58231",
+  "Mixoid matrix-enriched spindle+ spindle" = "#911EB4",
+  "MMP9- spindle" = "#46F0F0",
+  "MMP9+ spindle" = "#F032E6",
+  "Normal epithelium" = "#D2F53C",
+  "Normal fibrous tissue" = "#FABEBE",
+  "NST cells" = "#008080",
+  "Osteosarcomatoid tumour" = "#E6BEFF",
+  "Spindle cell tumour" = "#AA6E28",
+  "Spindle surrounded by NST" = "#FFFAC8",
+  "Squamous cell tumour" = "#800000", "#AaffC3", "#808000", "#000080"
+)
+
+shape_patients = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+```
+
+
+
+
+
+
+# Loading
+
+## Création
+
+On load et crée les objets Seurat pour chaque échantillon
+```{r warning=FALSE}
+# Liste des échantillons à traiter (excluant MpBC12)
+samples <- paste0("MpBC", c(1:11, 13:16))
+
+# Boucle pour charger et traiter chaque échantillon
+for (sample in samples) {
+  print(paste("📥 Chargement des données pour", sample, "..."))
+  
+  # Définir le chemin des fichiers
+  data_path <- paste0(dir_path, "Visium/", sample)
+  
+  # Charger les données 10X Spatial
+  obj <- Load10X_Spatial(data.dir = data_path, 
+                         filename = "filtered_feature_bc_matrix.h5", 
+                         assay = "Spatial", slice = paste0("Slice_", sample)) %>% 
+    AddMetaData(metadata = "batch1", col.name = 'Seq_batch') %>% 
+    AddMetaData(metadata = "Slide1", col.name = 'Visium_slide')
+  
+  # Charger les annotations
+  annotation_new <- read.csv(paste0(data_path, "/Annotations_new_with_unlabels.csv")) %>%
+    mutate(Barcode = paste0(sample, "_", Barcode))
+  
+  annotation_old <- read.csv(paste0(data_path, "/Annotations_old_with_unlabels.csv")) %>%
+    mutate(Barcode = paste0(sample, "_", Barcode)) %>%
+    rename("Barcode_new" = Barcode)
+  
+  # Ajouter les annotations à meta.data
+  obj@meta.data <- obj@meta.data %>%
+    cbind(annotation_new, annotation_old) %>%
+    select(-Barcode_new) %>%
+    rename("Patient" = orig.ident) %>%
+    mutate(Patient = sample)
+  
+  # On enlève les spots non annotés
+  obj <- subset(obj, Annotations_new != "" & Annotations_old != "")
+
+  
+  # Sauvegarder l'objet dans l'environnement sous le nom "MpBCX"
+  assign(sample, obj)
+  
+  print(paste("✅ Données chargées pour", sample))
+  
+
+}
+
+print("🎉 Tous les échantillons ont été traités avec succès !")
+
+```
+
+
+
+
+
+
+## Vérification
+
+Vérification qu'on assigne bien annotations à chaque spots/cellules
+
+```{r}
+samples <- paste0("MpBC", c(1:11, 13:16))
+
+# Liste pour stocker les erreurs
+mismatch_list <- list()
+
+for (sample in samples) {
+  obj_name <- sample
+  obj <- get(sample)
+  
+  # Extraire les noms de lignes et nettoyer les barcodes
+  UMI_barcodes <- rownames(obj@meta.data)
+  annotation_barcodes <- str_remove(obj@meta.data$Barcode, "^.*_")  # Supprime le préfixe MpBC1_ par exemple
+  
+  # Vérifier si tous les barcodes correspondent
+  all_match <- all(UMI_barcodes == annotation_barcodes)
+  
+  if (all_match) {
+    print(paste("✅ Tous les barcodes correspondent pour", obj_name))
+  } else {
+    print(paste("❌ Attention : certains barcodes ne correspondent pas pour", obj_name))
+    mismatch_list[[obj_name]] <- setdiff(UMI_barcodes, annotation_barcodes)
+  }
+}
+
+# Afficher les échantillons avec des erreurs
+if (length(mismatch_list) > 0) {
+  print("🚨 Échantillons avec des barcodes incorrects :")
+  print(names(mismatch_list))
+} else {
+  print("🎉 Tous les échantillons sont corrects !")
+}
+
+```
+
+
+
+
+
+
+# Fusion
+
+Création de l'objet Seurat fusionné
+
+## Chondroid
+
+Version avec les échantillons ayant du chondroids (small datasaet)
+```{r warning=FALSE}
+# On merge nos objet en un seul
+chondro_data_init <- merge(MpBC9, 
+                       y = list(MpBC13, MpBC15, MpBC16), 
+                       add.cell.ids = c("MpBC9", "MpBC13", "MpBC15", "MpBC16"))
+
+# Convertir les données dans orig.ident en facteur
+chondro_data_init$Patient <- factor(chondro_data_init$Patient, levels = c("MpBC9", "MpBC13", "MpBC15", "MpBC16"))
+chondro_data_init$Seq_batch <- factor(chondro_data_init$Seq_batch, levels = c("batch1", "batch2"))
+chondro_data_init$Visium_slide <- factor(chondro_data_init$Visium_slide, levels = c("Slide1", "Slide2", "Slide3", "Slide4", "Slide5", "Slide6", "Slide7", "Slide8"))
+
+# On enlève certains types cellulaires (difficilement caractérisables)
+chondro_data_init <- chondro_data_init %>% 
+  subset(nCount_Spatial > 0 & 
+         Annotations_old != "Mixed cells" & 
+         Annotations_new != "Pleiomorphic tumor" & 
+         Annotations_old != "NST surrounded by spindle")
+```
+
+
+
+
+
+## All
+
+Versions avec tous les échantillons (big dataset)
+```{r warning=FALSE}
+# On merge nos objet en un seul
+all_data_init <- merge(MpBC1, 
+                       y = list(MpBC2, MpBC3, MpBC4, MpBC5, MpBC6, MpBC7, MpBC8, MpBC9, MpBC10, MpBC11, MpBC13, MpBC14, MpBC15, MpBC16), 
+                       add.cell.ids = c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16"))
+
+# Convertir les données dans orig.ident en facteur
+all_data_init$Patient <- factor(all_data_init$Patient, levels = c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16"))
+all_data_init$Seq_batch <- factor(all_data_init$Seq_batch, levels = c("batch1", "batch2"))
+all_data_init$Visium_slide <- factor(all_data_init$Visium_slide, levels = c("Slide1", "Slide2", "Slide3", "Slide4", "Slide5", "Slide6", "Slide7", "Slide8"))
+
+# On enlève certains types cellulaires (difficilement caractérisables)
+all_data_init <- all_data_init %>%
+  # subset(nCount_Spatial > -1 & nFeature_Spatial > -1 & nCount_Spatial < 100000 & nFeature_Spatial < 100000 &
+  subset(nCount_Spatial > 0 &
+         Annotations_old != "Mixed cells" &
+         Annotations_new != "Pleiomorphic tumor" &
+         Annotations_old != "NST surrounded by spindle")
+VlnPlot(all_data_init, features = c("nFeature_Spatial", "nCount_Spatial"), ncol = 2, group.by = "Annotations_new")
+```
+
+
+
+# Description
+
+Description de l'objet Seurat fusionné
+```{r}
+dim(all_data@assays$Spatial)
+
+features_number <- length(rownames(all_data))
+print(paste("Le nombre de gènes/features dans notre objet est : ", features_number))
+
+spot_number <- length(Cells(all_data))
+print(paste("Le nombre de cellules/spots/barcodes dans notre objet est : ", spot_number))
+```
+
+On a donc dans l'objet merged_seurat, une grosse matrice (assay) "Spatial" de 18 085 `lignes (gènes/features)` et 56 506 `colonnes (cellules/spots/barcodes)`. Cette matrice stocke les valeurs de comptages d'UMI pour chaque gène dans chaque spot.
+
+
+
+
+
+
+# Contrôle qualité
+
+## Nombre d'UMI 
+
+Nombre d'UMI = nCount_Spatial
+```{r}
+sample = "MpBC16"
+obj <- get(sample)
+
+# VlnPlot pour la distribution des counts UMI
+umi_vln_plt <- VlnPlot(
+  obj, 
+  features = "nCount_Spatial", 
+  pt.size = 0.1) + 
+  ggtitle(paste("UMI Distribution by Sample -", sample)) +
+  NoLegend()
+
+# Graphique spatial de nCount_Spatial
+umi_sp_plt <- SpatialFeaturePlot(
+  obj, 
+  features = "nCount_Spatial", 
+  pt.size = 1.6) + 
+  ggtitle(paste("Spatial Distribution of nCount_Spatial -", sample))
+
+img <- SpatialPlot(
+  obj, # Name of the Seurat Object
+  pt.size = 0, # Point size to see spots on the tissue
+  crop = TRUE # Wether to crop to see only tissue section
+  ) + 
+  NoLegend()
+
+umi_vln_plt | umi_sp_plt | img
+```
+```{r message=FALSE, warning=FALSE}
+for (sample in samples) {
+  obj <- get(sample)
+  
+  # Calcul du nombre moyen d'UMI par spot
+  mean_umi <- mean(obj$nCount_Spatial)
+  
+  # Affichage du résultat
+  print(paste("Moyenne des UMI par spot pour", sample, ":", mean_umi))
+  
+  # VlnPlot pour visualiser la distribution des UMI
+  umi_vln_plt <- VlnPlot(
+    obj, 
+    features = "nCount_Spatial", 
+    pt.size = 0.1
+  ) + 
+    ggtitle(paste("UMI Distribution by Sample -", sample)) +
+    NoLegend()
+  
+  print(umi_vln_plt)
+}
+
+umi_means <- data.frame(
+  Sample = samples,
+  Mean_UMI = sapply(samples, function(sample) mean(get(sample)$nCount_Spatial))
+)
+
+print(umi_means)
+
+
+```
+
+
+
+
+## Nombre de features
+
+Gènes/features = nFeature_Spatial
+```{r}
+feat_vln_plt <- VlnPlot(
+  obj, 
+  features = "nFeature_Spatial", 
+  pt.size = 0.1) + 
+  NoLegend()
+
+feat_sp_plt <- SpatialFeaturePlot(
+  obj, 
+  features = "nFeature_Spatial")
+
+feat_vln_plt | feat_sp_plt | img
+```
+
+
+
+
+## Contaminations
+
+Pourcentage de mitochondries et de ribosomes
+```{r}
+# Mitochondrial content
+obj[["mt.content"]] <- PercentageFeatureSet(object = obj,
+                                            pattern = "^MT-")
+
+summary(obj[["mt.content"]])
+```
+
+```{r}
+# Ribosomal content
+obj[["rb.content"]] <- PercentageFeatureSet(
+  object = obj,
+  pattern = "^RPL|^RPS")
+
+summary(obj[["rb.content"]])
+```
+
+```{r}
+mt_rb_plot <- SpatialFeaturePlot(
+  obj, 
+  features = c("mt.content", "rb.content"))
+
+mt_rb_plot | img
+```
+
+
+
+
+# Filtrage
+
+## Features
+
+Filtrage out des gènes avec aucun compte d'UMI (pas d'expression détectée pour ces gènes)
+```{r}
+UMI_gene_cutoff <- 0
+
+# Vérifier les couches disponibles dans l'assay Spatial
+layers <- names(merged_seurat@assays$Spatial@layers)
+
+zero_count_genes_sum <- c()
+
+# Itérer sur chaque couche (layer) et analyser les résultats
+for (layer_name in layers) {
+  # Extraire les comptes de la couche
+  layer_counts <- merged_seurat@assays$Spatial@layers[[layer_name]]
+  
+  # Calculer le nombre de gène où les counts d'UMI sont égaux à 0
+  zero_count_genes <- table(rowSums(as.matrix(layer_counts)) <= UMI_gene_cutoff)
+  
+  # Ajouter les résultats (valeurs) au vecteur
+  if ('TRUE' %in% names(zero_count_genes)) {
+    zero_count_genes_sum <- c(zero_count_genes_sum, zero_count_genes['TRUE'])
+  } else {
+    zero_count_genes_sum <- c(zero_count_genes_sum, 0)
+  }
+
+  # Afficher un résumé des résultats pour chaque couche
+  print(paste("Analyzing layer:", layer_name))
+  print(zero_count_genes)
+  
+}
+
+print(paste0("Sur ", features_number, " gènes/features au total, le nombre de gène avec ", UMI_gene_cutoff, " UMI (ou moins) est de : ", sum(zero_count_genes_sum)))
+```
+
+```{r}
+layers <- names(merged_seurat@assays$Spatial@layers)
+
+# Créer une liste pour stocker les nouvelles matrices filtrées
+filtered_layers <- list()
+
+for (layer in layers) {
+  
+  layer_counts <- merged_seurat@assays$Spatial@layers[[layer]]
+  
+  # Conserver les gènes qui ont des comptes différents de 0
+  keep_genes <- rowSums(as.matrix(layer_counts)) != 0
+  
+  # Filtrer uniquement cette couche et stocker le résultat
+  filtered_layers[[layer]] <- layer_counts[keep_genes, ]
+}
+
+# Remplacer les anciennes couches par les nouvelles
+merged_seurat@assays$Spatial@layers <- filtered_layers
+
+```
+
+
+Alternative
+
+```{r}
+for (sample in samples) {
+  
+  obj <- get(sample)
+  # Filtrer les gènes avec moins de 500 UMI
+  obj <- subset(obj, subset = nFeature_Spatial > 0)
+  
+  # Sauvegarder les changements
+  assign(sample, obj)
+}
+```
+
+
+
+## Spots
+
+Filtrage out des cellules/spots avec des compte d'UMI < 500 (pas/peu d'expression détectée dans ce spot du tissu)
+```{r}
+UMI_spot_cutoff <- 500
+
+# Vérifier les couches disponibles dans l'assay Spatial
+layers <- names(merged_seurat@assays$Spatial@layers)
+
+low_count_spot_sum <- c()
+
+# Itérer sur chaque couche (layer) et analyser les résultats
+for (layer_name in layers) {
+  # Extraire les comptes de la couche
+  layer_counts <- merged_seurat@assays$Spatial@layers[[layer_name]]
+  
+  # Calculer le nombre de cellules/spots où les counts d'UMI sont égaux à 0
+  low_count_spots <- table(colSums(as.matrix(layer_counts)) <= UMI_spot_cutoff)
+  
+  # Ajouter les résultats (valeurs) au vecteur
+  if ('TRUE' %in% names(low_count_spots)) {
+    low_count_spot_sum <- c(low_count_spot_sum, low_count_spots['TRUE'])
+  } else {
+    low_count_spot_sum <- c(low_count_spot_sum, 0)
+  }
+    
+  # Afficher un résumé des résultats pour chaque couche
+  print(paste("Analyzing layer:", layer_name))
+  print(low_count_spots)
+  
+}
+
+print(paste("Sur ", spot_number, " spots au total, le nombre de spots avec ", UMI_spot_cutoff, " UMI (ou moins) est de : ", sum(low_count_spot_sum)))
+```
+
+```{r}
+# Filtrer les spots
+layers <- names(merged_seurat@assays$Spatial@layers)
+
+# Créer une liste pour stocker les nouvelles matrices filtrées
+filtered_layers <- list()
+
+for (layer in layers) {
+  
+  layer_counts <- merged_seurat@assays$Spatial@layers[[layer]]
+  
+  # Conserver les spots qui ont des comptes différents de 0
+  keep_spots <- colSums(as.matrix(layer_counts)) > 500
+  
+  # Filtrer uniquement cette couche et stocker le résultat
+  filtered_layers[[layer]] <- layer_counts[ ,keep_spots]
+}
+
+# Remplacer les anciennes couches par les nouvelles
+merged_seurat@assays$Spatial@layers <- filtered_layers
+```
+
+
+Alternative
+
+```{r}
+
+for (sample in samples) {
+  
+  obj <- get(sample)
+  # upper_threshold <- quantile(obj$nCount_Spatial, 0.99)  # Seuil supérieur à 99e percentile
+  upper_threshold <- mean(obj$nCount_Spatial) + 3 * sd(obj$nCount_Spatial)
+
+  # Filtrer les spots avec moins de 500 UMI
+  obj <- subset(obj, subset = nCount_Spatial > 500 & nCount_Spatial < upper_threshold)
+  
+  # Sauvegarder les changements
+  assign(sample, obj)
+}
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+# Normalisation
+
+## SCTransform
+```{r}
+# Remplace le Normalize, Find & ScaleData (et plus adapté)
+chondro_data <- SCTransform(chondro_data_init,
+                             vst.flavor = "v2",
+                             assay = "Spatial", 
+                             do.scale = FALSE, 
+                             do.center = TRUE, 
+                             verbose = TRUE,
+                             vars.to.regress = "nCount_Spatial",
+                             variable.features.n = 500,
+                             n_genes = 500)
+```
+```{r}
+all_data <- SCTransform(all_data_init,
+                             vst.flavor = "v2",
+                             assay = "Spatial", 
+                             do.scale = FALSE, 
+                             do.center = TRUE, 
+                             verbose = TRUE,
+                             vars.to.regress = "nCount_Spatial",
+                             variable.features.n = 500,
+                             n_genes = 500)
+
+# Pas plus de 3000 genes
+
+# vars.to.regress = "nCount_Spatial" permettrait de corriger les différence de profondeur de séquençage entre les spots, corriger l'effet de la capture variable des ARNs entre cellules ou spots et donc d'éviter que les spots avec un séquençage plus profond ne dominent l'analyse
+```
+
+## NormalizeData
+```{r}
+chondro_data <- chondro_data_init %>%
+  NormalizeData(assay = "Spatial",
+                normalization.method = "LogNormalize",
+                scale.factor = 1000) %>% 
+  FindVariableFeatures(selection.method = "vst",
+                       nfeatures = 50000) %>% 
+  ScaleData(do.scale = TRUE,
+            do.center = TRUE,
+            scale.max = 50,
+            model.use = "linear")
+
+features_number_chondro <- chondro_data@commands[["FindVariableFeatures.Spatial"]]@params[["nfeatures"]]
+
+```
+```{r}
+all_data <- all_data_init %>%
+  NormalizeData(assay = "Spatial",
+                normalization.method = "LogNormalize",
+                scale.factor = 1000) %>% 
+  FindVariableFeatures(selection.method = "vst",
+                       nfeatures = 35000) %>% 
+  ScaleData(do.scale = TRUE,
+            do.center = TRUE,
+            scale.max = 50,
+            model.use = "linear")
+
+features_number_all <- all_data@commands[["FindVariableFeatures.Spatial"]]@params[["nfeatures"]]
+
+```
+
+
+
+# PCA
+
+```{r}
+# Réduction de dimension PCA
+chondro_data <- RunPCA(chondro_data,
+                        assay = "Spatial",
+                        npcs = 50)
+
+ElbowPlot(chondro_data, ndims = 50) + ggtitle(paste0("Chondroid Patients - Normalized Data (" , features_number_chondro, " Genes) - PCA"))
+```
+```{r}
+all_data <- RunPCA(all_data,
+                        assay = "SCT",
+                        npcs = 50)
+
+ElbowPlot(all_data, ndims = 50) + ggtitle(paste0("All Patients - Normalized Data (" , features_number_all, " Genes) - PCA"))
+```
+
+```{r}
+DimPlot(chondro_data,
+        pt.size = 2,
+        reduction = "pca",
+        group.by = "Annotations_new",
+        shape.by = "Patient") +
+    scale_shape_manual(values = shape_patients) + 
+    scale_color_manual(values = annotation_colors) + 
+    ggtitle(paste0("Chondroid Patients - Normalized Data (" ,features_number_chondro, " Genes) - PCA - new_annot"))
+```
+```{r}
+DimPlot(all_data,
+        pt.size = 2,
+        reduction = "pca",
+        group.by = "Annotations_new",
+        shape.by = "Patient") +
+    scale_shape_manual(values = shape_patients) +
+    scale_color_manual(values = annotation_colors) +
+    ggtitle(paste0("All Patients - Normalized Data (" , features_number_all, " Genes) - PCA - new_annot"))
+```
+
+
+
+# Harmony
+
+```{r}
+
+# Correction du batch
+
+chondro_data <- RunHarmony(chondro_data,
+                            c("Patient", "Seq_batch", "Visium_slide"),
+                            theta = c(2, 2, 2),
+                            lambda = 1,
+                            sigma = 0.2,
+                            nclust = 25,
+                            max_iter = 50,
+                            verbose = TRUE)
+
+DimPlot(chondro_data,
+        pt.size = 1,
+        reduction = "harmony",
+        group.by = "Patient") +
+    scale_shape_manual(values = shape_patients) +
+    ggtitle(paste0("Chondroid Patients - Normalized Data (" ,features_number_chondro, " Genes) - Harmony"))
+```
+```{r}
+
+theta_param <- c(2, 2, 2)
+sigma_param <- 0.2
+nclust_param <- 100
+  
+all_data <- RunHarmony(all_data,
+                       c("Patient", "Seq_batch", "Visium_slide"),
+                       theta = theta_param,
+                       lambda = 1,
+                       sigma = sigma_param,
+                       nclust = nclust_param,
+                       max_iter = 20,
+                       verbose = TRUE)
+
+
+plot9 <- DimPlot(all_data,
+        pt.size = 0.25,
+        reduction = "harmony",
+        group.by = "Patient") +
+    scale_shape_manual(values = shape_patients) +
+    ggtitle(paste0("All Patients - Normalized Data (" ,features_number_all, " Genes) - Harmony"))
+
+
+ggsave(filename = paste0("All-Patients_NormalizedData(",features_number_all, "Genes)_Harmony(222)_", sigma_param, "_", nclust_param ,"_Patient.png"), plot = plot9, width = 12, height = 6, dpi = 300)
+
+plot8 <- DimPlot(all_data,
+        pt.size = 0.25,
+        reduction = "harmony",
+        group.by = "Seq_batch") +
+    scale_shape_manual(values = shape_patients) +
+    ggtitle(paste0("All Patients - Normalized Data (" ,features_number_all, " Genes) - Harmony"))
+
+
+ggsave(filename = paste0("All-Patients_NormalizedData(",features_number_all, "Genes)_Harmony(222)_", sigma_param, "_", nclust_param ,"_Seq_batch.png"), plot = plot8, width = 12, height = 6, dpi = 300)
+
+plot7 <- DimPlot(all_data,
+        pt.size = 0.25,
+        reduction = "harmony",
+        group.by = "Visium_slide") +
+    scale_shape_manual(values = shape_patients) +
+    ggtitle(paste0("All Patients - Normalized Data (" ,features_number_all, " Genes) - Harmony"))
+
+
+ggsave(filename = paste0("All-Patients_NormalizedData(",features_number_all, "Genes)_Harmony(222)_", sigma_param, "_", nclust_param ,"_Visium_slide.png"), plot = plot7, width = 12, height = 6, dpi = 300)
+
+plot1_all <- DimPlot(all_data,
+        pt.size = 1,
+        reduction = "harmony",
+        group.by = "Annotations_new",
+        shape.by = 'Patient') + 
+        scale_color_manual(values = annotation_colors) +
+        scale_shape_manual(values = shape_patients) +
+        ggtitle(paste0("All Patients - Normalized Data (" , features_number_all, " Genes) - Harmony - new_annot"))
+
+png(paste0("All-patients_NormalizedData(",features_number_all, "Genes)_HARMONY_new-annot_(222)_", sigma_param, "_", nclust_param ,".png"), width = 6000, height = 3000, res = 300)
+print(plot1_all)
+dev.off()
+
+
+```
+
+
+
+
+```{r}
+plot1_chondro <- DimPlot(chondro_data,
+        pt.size = 2,
+        reduction = "harmony",
+        group.by = "Annotations_new") + 
+        scale_color_manual(values = annotation_colors) +
+        scale_shape_manual(values = shape_patients) +
+        ggtitle(paste0("Chondroid Patients - Normalized Data (" ,features_number_chondro, " Genes) - Harmony - new_annot"))
+
+print(plot1_chondro)
+```
+```{r}
+plot1_all <- DimPlot(all_data,
+        pt.size = 2,
+        reduction = "harmony",
+        group.by = "Annotations_new") + 
+        scale_color_manual(values = annotation_colors) +
+        scale_shape_manual(values = shape_patients) +
+        ggtitle(paste0("All Patients - Normalized Data (" , features_number_all, " Genes) - Harmony - new_annot"))
+
+print(plot1_all)
+```
+```{r}
+png(paste0("Chondroid-Patients_NormalizedData(",features_number_chondro,"Genes)_Harmony_new-annot.png"), width = 6000, height = 3000, res = 300)
+print(plot1_chondro)
+dev.off()
+
+png(paste0("All-patients_NormalizedData(",features_number_all, "Genes)_HARMONY_new-annot.png"), width = 6000, height = 3000, res = 300)
+print(plot1_all)
+dev.off()
+```
+
+
+```{r}
+plot2_chondro <- DimPlot(chondro_data,
+        pt.size = 2,
+        reduction = "harmony",
+        group.by = "Annotations_old") +
+    scale_color_manual(values = colors_old) +
+    scale_shape_manual(values = shape_patients) +
+    ggtitle(paste0("Chondroid Patients - Normalized Data (" ,features_number_chondro, " Genes) - Harmony - old_annot"))
+
+print(plot2_chondro)
+
+plot2_all <- DimPlot(all_data,
+        pt.size = 2,
+        reduction = "harmony",
+        group.by = "Annotations_old") +
+    scale_color_manual(values = colors_old) +
+    scale_shape_manual(values = shape_patients) +
+    ggtitle(paste0("All Patients - Normalized Data (" ,features_number_all, " Genes) - Harmony - old_annot"))
+
+print(plot2_all)
+```
+```{r}
+png(paste0("Chondroid-patients_NormalizeData(" ,features_number_chondro, "genes)_HARMONY_old-annot.png"), width = 6000, height = 3000, res = 300)
+print(plot2_chondro)
+dev.off()
+png(paste0("All-patients_NormalizeData(" ,features_number_all, "genes)_HARMONY_old-annot.png"), width = 6000, height = 3000, res = 300)
+print(plot2_all)
+dev.off()
+```
+
+
+
+
+
+
+
+# Clustering
+
+## UMAP
+
+
+
+```{r}
+chondro_data <- RunUMAP(chondro_data,
+                         assay = "SCT",
+                         reduction = "harmony",
+                         dims = 1:15,
+                         n.neighbors = 100, 
+                         min.dist = 0.001,
+                         spread = 2,
+                         metric = "euclidean")
+n_components_chondro <- chondro_data@commands[["RunUMAP.Spatial.harmony"]]@params[["dims"]] %>% length()
+neighbours_number_chondro <- chondro_data@commands[["RunUMAP.Spatial.harmony"]]@params[["n.neighbors"]]
+
+
+```
+```{r}
+all_data <- RunUMAP(all_data,
+                         assay = "SCT",
+                         reduction = "harmony",
+                         dims = 1:15,
+                         n.neighbors = 100, 
+                         min.dist = 0.001,
+                         spread = 2,
+                         metric = "euclidean")
+
+neighbours_number_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["n.neighbors"]]
+
+n_components_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["dims"]] %>% length()
+```
+
+
+
+
+```{r}
+
+plot3_chondro <- DimPlot(chondro_data,
+        pt.size = 2,
+        reduction = "umap",
+        group.by = "Annotations_new") + 
+        scale_color_manual(values = annotation_colors) +
+        scale_shape_manual(values = shape_patients) +
+        ggtitle(paste0("Chondroid Patients - Normalized Data (" ,features_number_chondro, " Genes) - UMAP (" , neighbours_number_chondro, " Neighbours, ", n_components_chondro, " composantes) - new_annot"))
+
+print(plot3_chondro)
+```
+```{r}
+plot3_all <- DimPlot(all_data,
+        pt.size = 0.30,
+        reduction = "umap",
+        group.by = "Annotations_new") + 
+        scale_color_manual(values = annotation_colors) +
+        scale_shape_manual(values = shape_patients) +
+        ggtitle(paste0("All Patients - Normalized Data (" ,features_number_all, " Genes) - UMAP (" , neighbours_number_all, " Neighbours, ", n_components_all, " composantes) - new_annot"))
+
+print(plot3_all)
+```
+
+```{r}
+png(paste0("Chondroid-patients_NormalizeData(" ,features_number_chondro, "genes)_UMAP_new-annot.png"),
+    width = 6000, height = 3000, res = 300)
+print(plot3_chondro)
+dev.off()
+
+png(paste0("All-patients_NormalizeData(" ,features_number_all, "genes)_UMAP_new-annot.png"),
+    width = 6000, height = 3000, res = 300)
+print(plot3_all)
+dev.off()
+```
+
+UMAP split par patient (new_annot)
+
+```{r warning=FALSE}
+# Plot pour les patients chondroïdes
+
+plot3_chondro_bis <- DimPlot(chondro_data,
+        pt.size = 2,
+        reduction = "umap",
+        group.by = "Annotations_new",
+        split.by = "Patient",
+        ncol = 2) + 
+        scale_color_manual(values = annotation_colors) +
+        scale_shape_manual(values = shape_patients) +
+        ggtitle(paste0("Chondroid Patients - Normalized Data (" ,features_number_chondro, " Genes) - UMAP - new_annot")) 
+
+print(plot3_chondro_bis)
+  # Sauvegarder l'image pour ce patient
+  ggsave(filename = paste0("Chondroid-Patients_NormalizedData-(" ,features_number_all, " Genes)_UMAP_new-annot.png"), plot = plot3_chondro_bis, width = 12, height = 6, dpi = 300)
+
+
+  
+  
+#Plot pour tous les patients
+  
+# Extraire la liste des patients
+patients_list <- unique(all_data$Patient)
+
+# Boucle pour générer un plot par patient et le sauvegarder
+for (patient in patients_list) {
+  
+  # Filtrer les données pour un patient spécifique
+  patient_data <- subset(all_data, subset = (Patient == patient))
+  
+  # Créer le plot pour ce patient
+  plot_patient <- DimPlot(patient_data,
+                          pt.size = 1,
+                          reduction = "umap",
+                          group.by = "Annotations_new") +
+                  scale_color_manual(values = annotation_colors) +
+                  scale_shape_manual(values = shape_patients) +
+                  ggtitle(paste0("All Patients (", patient,") - Normalized Data (" ,features_number_all, " Genes) - UMAP - new_annot"))
+  
+  # Sauvegarder l'image pour ce patient
+  ggsave(filename = paste0("All-Patients-(", patient,")_NormalizedData-(" ,features_number_all, " Genes)_UMAP_new-annot.png"),
+         plot = plot_patient, width = 12, height = 6, dpi = 300)
+  print(plot_patient)
+  print(paste("Plot saved for Patient:", patient))
+}
+```
+
+
+
+
+
+```{r}
+plot4_chondro <- DimPlot(chondro_data,
+        pt.size = 2,
+        reduction = "umap",
+        group.by = "Annotations_old") + 
+        scale_color_manual(values = colors_old) +
+        scale_shape_manual(values = shape_patients) +
+        ggtitle(paste0("Chondroid Patients - Normalized Data (" ,features_number_chondro, " Genes) - UMAP (" , neighbours_number_chondro, " Neighbours, ", n_components_chondro, " composantes) - old_annot"))
+
+print(plot4_chondro)
+
+plot4_all <- DimPlot(all_data,
+        pt.size = 0.30,
+        reduction = "umap",
+        group.by = "Annotations_old") + 
+        scale_color_manual(values = colors_old) +
+        scale_shape_manual(values = shape_patients) +
+        ggtitle(paste0("All Patients - Normalized Data (" ,features_number_all, " Genes) - UMAP (" , neighbours_number_all, " Neighbours, ", n_components_all, " composantes) - old_annot"))
+
+print(plot4_all)
+```
+
+```{r}
+png(paste0("Chondroid-patients_NormalizeData(" ,features_number_chondro, "genes)_UMAP_old-annot.png"), width = 6000, height = 3000, res = 300)
+print(plot4_chondro)
+dev.off()
+
+png(paste0("All-patients_NormalizeData(" ,features_number_all, "genes)_UMAP_old-annot.png"), width = 6000, height = 3000, res = 300)
+print(plot4_all)
+dev.off()
+```
+
+UMAP split par patient (old_annot)
+
+```{r warning=FALSE}
+# Plot pour les patients chondroïdes
+
+plot4_chondro_bis <- DimPlot(chondro_data,
+        pt.size = 2,
+        reduction = "umap",
+        group.by = "Annotations_old",
+        split.by = "Patient",
+        ncol = 2) + 
+        scale_color_manual(values = colors_old) +
+        scale_shape_manual(values = shape_patients) +
+        ggtitle(paste0("Chondroid Patients - Normalized Data (" ,features_number_chondro, " Genes) - UMAP - old_annot")) 
+
+print(plot4_chondro_bis)
+  # Sauvegarder l'image pour ce patient
+  ggsave(filename = paste0("Chondroid-Patients_NormalizedData-(" ,features_number_all, " Genes)_UMAP_old-annot.png"), plot = plot4_chondro_bis, width = 12, height = 6, dpi = 300)
+
+
+  
+  
+# Plot pour tous les patients
+
+# Extraire la liste des patients
+patients_list <- unique(all_data$Patient)
+
+# Boucle pour générer un plot par patient et le sauvegarder
+for (patient in patients_list) {
+  
+  # Filtrer les données pour un patient spécifique
+  patient_data <- subset(all_data, subset = (Patient == patient))
+  
+  # Créer le plot pour ce patient
+  plot_patient <- DimPlot(patient_data,
+                          pt.size = 1,
+                          reduction = "umap",
+                          group.by = "Annotations_old") +
+                  scale_color_manual(values = colors_old) +
+                  scale_shape_manual(values = shape_patients) +
+                  ggtitle(paste0("All Patients (", patient,") - Normalized Data (" ,features_number_all, " Genes) - UMAP - old_annot"))
+  
+  # Sauvegarder l'image pour ce patient
+  ggsave(filename = paste0("All-Patients-(", patient,")_NormalizedData-(" ,features_number_all, " Genes)_UMAP_old-annot.png"),
+         plot = plot_patient, width = 12, height = 6, dpi = 300)
+  print(plot_patient)
+  print(paste("Plot saved for Patient:", patient))
+}
+```
+
+# ------------------------------------------------------------------------------
+Test UMAP 3D
+
+```{r}
+library(Seurat)
+library(plotly)
+library(RColorBrewer)
+colorscale <- brewer.pal(n = 9, name = "Set1")  # Utilise une palette de RColorBrewer
+
+# Appliquer UMAP avec 3 dimensions sur un objet Seurat
+seurat_obj <- RunUMAP(merged_seurat, dims = 1:30, n.components = 3)
+
+# Extraire les coordonnées UMAP
+umap_df <- as.data.frame(Embeddings(seurat_obj, reduction = "umap"))
+colnames(umap_df) <- c("UMAP1", "UMAP2", "UMAP3")
+
+# Ajouter les annotations aux coordonnées UMAP
+umap_df$Annotation_new <- merged_seurat@meta.data$Annotations_new
+
+# Ajouter les identités des clusters
+umap_df$cluster <- Idents(seurat_obj)
+
+# Utiliser plotly pour un graphique 3D avec coloris selon Annotation_new
+fig <- plot_ly(umap_df, x = ~UMAP1, y = ~UMAP2, z = ~UMAP3, 
+               color = ~Annotation_new, colors = colorscale,  # Utilise ici la palette Viridis
+               type = "scatter3d", mode = "markers")
+
+# Afficher le graphique
+fig
+
+```
+
+# ------------------------------------------------------------------------------
+Test des paramètres avec des boucles
+
+
+```{r}
+for (g in c(750)) {
+for (s in c(5000)) {
+  all_data <- all_data_init %>%
+        NormalizeData(assay = "Spatial",
+                      normalization.method = "LogNormalize",
+                      scale.factor = s) %>% 
+        FindVariableFeatures(selection.method = "vst",
+                             nfeatures = g) %>% 
+        ScaleData(do.scale = TRUE,
+                  do.center = TRUE,
+                  scale.max = 10,
+                  model.use = "linear") %>% 
+        RunPCA(assay = "Spatial",
+               npcs = 50) %>% 
+        RunHarmony(c("Patient", "Seq_batch", "Visium_slide"),
+                   theta = c(2, 2, 2),
+                   lambda = 1,
+                   sigma = 0.2,
+                   nclust = 150,
+                   max_iter = 50,
+                   verbose = TRUE)
+# ----------- 2min ---------------
+  for (n in c(40)) {
+    for (i in c(75)) {
+      all_data <- all_data %>% 
+        RunUMAP(assay = "Spatial",
+                reduction = "harmony",
+                dims = 1:n,
+                n.neighbors = i, 
+                min.dist = 0.0001,
+                spread = 2,
+                opmixratio = 1,
+                metric = "euclidean")
+# ----------- 3min20 ---------------
+    
+      neighbours_number_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["n.neighbors"]]
+      n_components_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["dims"]] %>% length()
+      features_number_all <- all_data@commands[["FindVariableFeatures.Spatial"]]@params[["nfeatures"]]
+      min_dist_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["min.dist"]]
+      set_op_mix_ratio_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["set.op.mix.ratio"]]
+      spread_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["spread"]]
+      scale_factor_all <- all_data@commands[["NormalizeData.Spatial"]]@params[["scale.factor"]]
+      vars_to_regress_all <- all_data@commands[["ScaleData.Spatial"]]@params[["vars.to.regress"]]
+      
+      p1 <- DimPlot(all_data,
+            pt.size = 0.25,
+            reduction = "umap",
+            group.by = "Annotations_new") + 
+            scale_color_manual(values = annotation_colors) +
+            scale_shape_manual(values = shape_patients) +
+            ggtitle(paste0("All Patients - Normalized Data (" ,features_number_all, " Genes) - UMAP (" , neighbours_number_all, " Neighbours, ", n_components_all, " composantes " , scale_factor_all, " scale) - new_annot"))
+      
+      p2 <- DimPlot(all_data,
+            pt.size = 0.25,
+            reduction = "umap",
+            group.by = "Annotations_old") + 
+            scale_color_manual(values = colors_old) +
+            scale_shape_manual(values = shape_patients) +
+            ggtitle(paste0("All Patients - Normalized Data (" ,features_number_all, " Genes) - UMAP (" , neighbours_number_all, " Neighbours, ", n_components_all, " composantes " ,scale_factor_all, " scale) - old_annot"))
+      
+      ggsave(filename = paste0(neighbours_number_all, " neighrbours ", n_components_all, " component ", features_number_all, " features ", min_dist_all, " mindist ", set_op_mix_ratio_all, " opmix ", spread_all, " spread ", scale_factor_all, " scale ", "new_annot.png"), plot = p1, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+      
+      ggsave(filename = paste0(neighbours_number_all, " neighrbours ", n_components_all, " component ", features_number_all, " features ", min_dist_all, " mindist ", set_op_mix_ratio_all, " opmix ", spread_all, " spread ", scale_factor_all, " scale ", "old_annot.png"), plot = p2, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+      
+      print(paste0("UMAP with variable done for ", n_components_all, " components and ", neighbours_number_all, " neighbors and ", scale_factor_all, " scale and mindist ", min_dist_all ))
+      }
+    }
+  }
+}
+
+# Neighbors : Pas de grande différence de 10 à 40 (peut etre un peu mieux à partir de 50 mais pas de diff au dela de 100) ==> On va garder 100
+# 40 composantes semble etre l'ideal
+# min_dist = 0.001 semble le mieux
+# opmixratio = 1 semble le mieux
+# spread = 2 semble le mieux
+```
+
+```{r}
+for (s in c(10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120)) {
+  all_data <- RunUMAP(all_data,
+          assay = "Spatial", 
+          reduction = "harmony",
+          dims = 1:40,
+          n.neighbors = 10000, 
+          min.dist = 0.001,
+          spread = 2,
+          set.op.mix.ratio = 1,
+          metric = "euclidean")
+  
+    neighbours_number_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["n.neighbors"]]
+    n_components_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["dims"]] %>% length()
+    features_number_all <- all_data@commands[["FindVariableFeatures.Spatial"]]@params[["nfeatures"]]
+    min_dist_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["min.dist"]]
+    set_op_mix_ratio_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["set.op.mix.ratio"]]
+    spread_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["spread"]]
+    scale_factor_all <- all_data@commands[["NormalizeData.Spatial"]]@params[["scale.factor"]]
+    vars_to_regress_all <- all_data@commands[["ScaleData.Spatial"]]@params[["vars.to.regress"]]
+    
+    p1 <- DimPlot(all_data,
+          pt.size = 0.25,
+          reduction = "umap",
+          group.by = "Annotations_new") + 
+          scale_color_manual(values = annotation_colors) +
+          scale_shape_manual(values = shape_patients) +
+          ggtitle(paste0("All Patients - Normalized Data (" ,features_number_all, " Genes) - UMAP (" , neighbours_number_all, " Neighbours, ", n_components_all, " composantes " , scale_factor_all, " scale) - new_annot"))
+    
+    p2 <- DimPlot(all_data,
+          pt.size = 0.25,
+          reduction = "umap",
+          group.by = "Annotations_old") + 
+          scale_color_manual(values = colors_old) +
+          scale_shape_manual(values = shape_patients) +
+          ggtitle(paste0("All Patients - Normalized Data (" ,features_number_all, " Genes) - UMAP (" , neighbours_number_all, " Neighbours, ", n_components_all, " composantes " ,scale_factor_all, " scale) - old_annot"))
+    
+        ggsave(filename = paste0(neighbours_number_all, " neighrbours ", n_components_all, " component ", features_number_all, " features ", min_dist_all, " mindist ", set_op_mix_ratio_all, " opmix ", spread_all, " spread ", scale_factor_all, " scale ", "variable_", s, " new_annot.png"), plot = p1, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+    
+    ggsave(filename = paste0(neighbours_number_all, " neighrbours ", n_components_all, " component ", features_number_all, " features ", min_dist_all, " mindist ", set_op_mix_ratio_all, " opmix ", spread_all, " spread ", scale_factor_all, " scale ", "variable_", s, " old_annot.png"), plot = p2, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+    
+    print(paste0("UMAP with variable ", s, " done"))
+}
+```
+
+```{r}
+ElbowPlot(all_data, ndims = 50) + ggtitle(paste0("All Patients - Normalized Data (" , features_number_all, " Genes) - PCA"))
+```
+

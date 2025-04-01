@@ -1,0 +1,415 @@
+---
+title: "integration_v2"
+author: "J Dutel"
+date: "2025-03-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(hdf5r)
+library(ggfortify)
+library(harmony)
+library(sctransform)
+library(viridis)
+library(stringr)
+library(viridisLite)
+library(patchwork)
+
+dir_path <- "/mnt/datadisk/Jordan/Data/"
+
+# Assigner des couleurs aux groupes en respectant la proximité biologique
+annotation_colors <- c(
+  "Chondroid tumor" = "#8B4513",          # Marron (cartilage)
+  "Epithelial tumor" = "#FF4500",         # Orange vif
+  "Epithelial/Mesenchymal tumor" = "#9400D3", # Violet profond (intermédiaire)
+  "Mesenchymal tumor" = "#1E90FF",        # Bleu intense
+  "Normal epithelium" = "#32CD32",        # Vert clair
+  "Normal mesenchyme" = "#00CED1",        # Turquoise
+  "Osteosarcomatoid tumor" = "black",   # Brun terreux
+  "Pleiomorphic tumor" = "#B22222",       # Rouge bordeaux
+  "Spindle cell tumor" = "#4682B4",       # Bleu acier
+  "Squamous tumor" = "grey"            # Rouge tomate
+)
+
+colors_old <- c(
+  "Chondroid tumour cells" = "#E6194B",
+  "Classical chondrosarcoma cells" = "#3CB44B",
+  "Epithelial tumor cells" = "#FFE119",
+  "Mesenchymal tumor cells" = "#4363D8",
+  "Mixoid chondrosarcoma cells" =  "#F58231",
+  "Mixoid matrix-enriched spindle+ spindle" = "#911EB4",
+  "MMP9- spindle" = "#46F0F0",
+  "MMP9+ spindle" = "#F032E6",
+  "Normal epithelium" = "#D2F53C",
+  "Normal fibrous tissue" = "#FABEBE",
+  "NST cells" = "#008080",
+  "Osteosarcomatoid tumour" = "#E6BEFF",
+  "Spindle cell tumour" = "#AA6E28",
+  "Spindle surrounded by NST" = "#FFFAC8",
+  "Squamous cell tumour" = "#800000", "#AaffC3", "#808000", "#000080"
+)
+
+cluster_colors <- c(
+  "#8B4513",          # Marron (cartilage)
+  "#FFE119",
+  "#FF4500",         # Orange vif
+  "#9400D3", # Violet profond (intermédiaire)
+  "#1E90FF",        # Bleu intense
+  "#32CD32",        # Vert clair
+  "#46F0F0",        # Turquoise
+  "black",   # Brun terreux
+  "#B22222",       # Rouge bordeaux
+  "#4682B4",       # Bleu acier
+  "grey",
+  "#F032E6")            # Rouge tomate
+
+cluster_colors_v2 <- c(
+  "Chondro_tum" = "#8B4513",          # Marron (cartilage)
+  "Epi_tum" = "#FF4500",         # Orange vif
+  "Mes_tum" = "#1E90FF",        # Bleu intense
+  "Epi_tum" = "#32CD32",        # Vert clair
+  "Mes_norm" = "#00CED1",        # Turquoise
+  "Osteo_tum" = "black",   # Brun terreux
+  "Spindle_tum" = "#4682B4",       # Bleu acier
+  "Squamo_tum" = "grey"            # Rouge tomate
+)
+
+shape_patients = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+```
+
+# Loading
+```{r warning=FALSE}
+# Nombre de features à conserver
+# features_number <- 2000
+
+# Liste des échantillons à traiter (excluant MpBC12)
+samples <- paste0("MpBC", c(1:11, 13:16))
+
+# Boucle pour charger et traiter chaque échantillon
+for (sample in samples) {
+  print(paste("📥 Chargement des données pour", sample, "..."))
+  
+  # Définir le chemin des fichiers
+  data_path <- paste0(dir_path, "Visium/", sample)
+  
+  # Déterminer le batch en fonction du numéro d'échantillon
+  sample_number <- as.numeric(gsub("MpBC", "", sample))
+  
+  ## Numero batch
+  if (sample_number >= 1 & sample_number <= 8) {batch <- "batch1"} 
+  else if (sample_number >= 9 & sample_number <= 16 & sample_number != 12) {batch <- "batch2"}
+  
+  ## Numero slide
+  if (sample_number == 1 | sample_number == 2) {slide <- "slide1"} 
+  else if (sample_number == 3 | sample_number == 4) {slide <- "slide2"}
+  else if (sample_number == 5 | sample_number == 6) {slide <- "slide3"}
+  else if (sample_number == 7 | sample_number == 8) {slide <- "slide4"}
+  else if (sample_number == 9 | sample_number == 10) {slide <- "slide5"}
+  else if (sample_number == 11 | sample_number == 12) {slide <- "slide6"}
+  else if (sample_number == 13 | sample_number == 14) {slide <- "slide7"}
+  else if (sample_number == 15 | sample_number == 16) {slide <- "slide8"}
+  
+  # Charger les données 10X Spatial
+  obj <- Load10X_Spatial(data.dir = data_path, 
+                         filename = "filtered_feature_bc_matrix.h5", 
+                         assay = "Spatial", slice = paste0("Slice_", sample)) %>% 
+    AddMetaData(metadata = batch, col.name = 'Seq_batch') %>% 
+    AddMetaData(metadata = slide, col.name = 'Visium_slide')
+  
+  # Charger les annotations
+  annotation_new <- read.csv(paste0(data_path, "/Annotations_new_with_unlabels.csv")) %>%
+    mutate(Barcode = paste0(sample, "_", Barcode))
+  
+  annotation_old <- read.csv(paste0(data_path, "/Annotations_old_with_unlabels.csv")) %>%
+    mutate(Barcode = paste0(sample, "_", Barcode)) %>%
+    rename("Barcode_new" = Barcode)
+  
+  # Ajouter les annotations à meta.data
+  obj@meta.data <- obj@meta.data %>%
+    cbind(annotation_new, annotation_old) %>%
+    select(-Barcode_new) %>%
+    rename("Patient" = orig.ident) %>%
+    mutate(Patient = sample)
+
+  # On enlève certains types cellulaires (difficilement caractérisables)
+  obj <- obj %>%
+    subset(nCount_Spatial > 0 &
+           Annotations_old != "Mixed cells" &
+           Annotations_new != "Pleiomorphic tumor" &
+           Annotations_old != "NST surrounded by spindle" &
+           Annotations_old != "" & Annotations_new != "" &
+           Annotations_old != "Necrosis" & Annotations_new != "Necrosis")
+
+  # Normaliser les données 
+  ## --- NormalizeData ---
+  # obj <- obj %>% NormalizeData(assay = "Spatial",
+  #                              normalization.method = "LogNormalize",
+  #                              scale.factor = 5000) %>%
+  # FindVariableFeatures(selection.method = "vst",
+  #                      nfeatures = 750) %>%
+  # ScaleData(do.scale = TRUE,
+  #           do.center = TRUE,
+  #           scale.max = 50,
+  #           model.use = "linear")
+  ## --- SCTransform ---
+  # obj <- obj %>% SCTransform(vst.flavor = "v2",
+  #                            assay = "Spatial", 
+  #                            do.scale = FALSE, 
+  #                            do.center = TRUE, 
+  #                            verbose = TRUE,
+  #                            return.only.var.genes = TRUE,
+  #                            variable.features.n = features_number,
+  #                            n_genes = features_number)
+  
+  
+  # Sauvegarder l'objet dans l'environnement sous le nom "MpBCX"
+  assign(sample, obj)
+  
+  print(paste("✅ Données chargées pour", sample))
+
+}
+
+print("🎉 Tous les échantillons ont été traités avec succès !")
+```
+
+# Merging
+```{r warning=FALSE}
+# On merge nos objet en un seul
+obj_list <- c(MpBC2, MpBC3, MpBC4, MpBC5, MpBC6, MpBC7, MpBC8, 
+              MpBC9, MpBC10, MpBC11, MpBC13, MpBC14, MpBC15, MpBC16)
+names_obj_list <- c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", 
+                    "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16")
+
+all_data_init <- merge(MpBC1, 
+                       y = obj_list, 
+                       add.cell.ids = names_obj_list,
+                       project = "MpBC_Visium",
+                       merge.data = TRUE)
+
+# Convertir les données dans orig.ident en facteur
+all_data_init$Patient <- factor(all_data_init$Patient, 
+                                levels = c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", 
+                                           "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16"))
+all_data_init$Seq_batch <- factor(all_data_init$Seq_batch, 
+                                  levels = c("batch1", "batch2"))
+all_data_init$Visium_slide <- factor(all_data_init$Visium_slide, 
+                                     levels = c("slide1", "slide2", "slide3", "slide4", 
+                                                "slide5", "slide6", "slide7", "slide8"))
+
+# VariableFeatures(all_data_init[["SCT"]]) <- rownames(all_data_init[["SCT"]]@scale.data)
+
+# all_data_init <- JoinLayers(all_data_init)
+
+VlnPlot(all_data_init, 
+        features = c("nFeature_Spatial", "nCount_Spatial"), 
+        ncol = 2, 
+        group.by = "Patient",
+        pt.size = 0.1,
+        alpha = 0.35)
+ggsave("VlnPlot_MpBC_Patient.png", width = 12, height = 6, dpi = 300)
+
+VlnPlot(all_data_init, 
+        features = c("nFeature_Spatial", "nCount_Spatial"), 
+        ncol = 2, 
+        group.by = "Annotations_new",
+        pt.size = 0.1,
+        alpha = 0.35)
+ggsave("VlnPlot_MpBC_Annotations_new.png", width = 12, height = 6, dpi = 300)
+
+```
+
+# Normalization
+```{r}
+all_data_init <- all_data_init %>%
+  NormalizeData(assay = "Spatial",
+                      normalization.method = "LogNormalize",
+                      scale.factor = 5000) %>% 
+        FindVariableFeatures(selection.method = "vst",
+                             nfeatures = 750) %>% 
+        ScaleData(do.scale = TRUE,
+                  do.center = TRUE,
+                  scale.max = 10,
+                  model.use = "linear")
+```
+
+
+```{r}
+# 📌 Étape 1 : Normalisation et sélection des features pour chaque échantillon
+sample.list <- list(MpBC1, MpBC2, MpBC3, MpBC4, MpBC5, MpBC6, MpBC7, MpBC8, 
+                    MpBC9, MpBC10, MpBC11, MpBC13, MpBC14, MpBC15, MpBC16)
+
+# 📌 Étape 1 : Normalisation et sélection des features pour chaque échantillon
+sample.list <- lapply(sample.list, function(x) {
+  x <- NormalizeData(x, assay = "Spatial", normalization.method = "LogNormalize", scale.factor = 5000)
+  x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 750)
+  x <- ScaleData(x, verbose = FALSE)
+  x <- RunPCA(x, npcs = 30, verbose = FALSE)  # Ajout de RunPCA()
+  return(x)
+})
+
+# 📌 Étape 2 : Trouver les ancres d’intégration
+anchors <- FindIntegrationAnchors(object.list = sample.list, 
+                                  anchor.features = 750, # Nombre de features communes
+                                  normalization.method = "LogNormalize",
+                                  reduction = "rpca")  # "rpca" recommandé pour effets de batch forts
+
+# 📌 Étape 3 : Intégration des données
+all_data_integrated <- IntegrateData(anchorset = anchors)
+
+# 📌 Étape 4 : Standardisation et réduction de dimension
+all_data_integrated <- ScaleData(all_data_integrated, verbose = FALSE)
+all_data_integrated <- RunPCA(all_data_integrated, npcs = 30, verbose = FALSE)
+
+# 📌 Étape 5 : UMAP et clustering
+all_data_integrated <- all_data_integrated %>% 
+  RunUMAP(seed.use = 42,
+                reduction = "pca",
+                dims = 1:20,
+                n.neighbors = 75, 
+                min.dist = 0.0001,
+                spread = 2,
+                set.op.mix.ratio = 1,
+                metric = "cosine") # euclidean et cosine c'est pas mal
+# all_data_integrated <- FindNeighbors(all_data_integrated, dims = 1:30)
+# all_data_integrated <- FindClusters(all_data_integrated, resolution = 0.5)
+
+# 📌 Étape 6 : Visualisation des résultats
+DimPlot(all_data_integrated,
+        pt.size = 0.75,
+        reduction = "pca",
+        group.by = "Patient") +
+    scale_shape_manual(values = shape_patients) +
+    # scale_color_manual(values = annotation_colors) +
+    ggtitle(paste0("PCA - MpBC"))
+
+ggsave(filename = "PCA_MpBC.png", width = 12, height = 6, dpi = 300)
+
+plot2 <- DimPlot(all_data_integrated,
+        pt.size = 0.25,
+        reduction = "umap",
+        group.by = "Annotations_new",
+        shape.by = "Patient") +
+    scale_color_manual(values = annotation_colors) +
+    scale_shape_manual(values = shape_patients) +
+    ggtitle(paste0("All Patients - Normalized Data (" ,features_number, " Genes) - UMAP"))
+
+ggsave(filename = paste0("Opti_All-Patients_NormalizedData(",features_number, "_", neighbours_number_all, "_", n_components_all , "_", min_dist_all , "_", set_op_mix_ratio_all, "_", spread_all , "_", metric_all, "_Genes).png"), plot = plot2, width = 12, height = 6, dpi = 300)
+
+DimPlot(all_data_integrated, reduction = "umap", group.by = "Patient") + ggtitle("UMAP par patient")
+ggsave("UMAP_Patient.png", width = 10, height = 6, dpi = 300)
+
+DimPlot(all_data_integrated, reduction = "umap", group.by = "Seq_batch") + ggtitle("UMAP par batch de séquençage")
+ggsave("UMAP_SeqBatch.png", width = 10, height = 6, dpi = 300)
+
+DimPlot(all_data_integrated, reduction = "umap", group.by = "Visium_slide") + ggtitle("UMAP par slide Visium")
+ggsave("UMAP_VisiumSlide.png", width = 10, height = 6, dpi = 300)
+
+# 📌 Étape 7 : Extraction des marqueurs des clusters
+markers <- FindAllMarkers(all_data_integrated, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+# Sauvegarde des résultats
+write.csv(markers, "Cluster_Markers.csv")
+
+```
+
+```{r}
+library(Seurat)
+library(harmony)
+library(dplyr)
+
+# Vérifier que l'assay est bien SCT
+DefaultAssay(all_data_init) <- "SCT"
+
+# Extraire les features variables de tous les échantillons fusionnés
+variable_features <- SelectIntegrationFeatures(object.list = SplitObject(all_data_init, split.by = "Patient"), nfeatures = 2000)
+
+# Définir ces features comme features variables de l'objet fusionné
+VariableFeatures(all_data_init) <- variable_features
+
+# PCA et correction des batch effects avec Harmony
+all_data <- all_data_init %>%
+  RunPCA(npcs = 50, verbose = FALSE) %>%
+  RunHarmony(group.by.vars = "Patient", plot_convergence = TRUE)
+
+# UMAP avec des paramètres optimisés
+all_data <- all_data %>%
+  RunUMAP(reduction = "harmony", dims = 1:50, 
+          n.neighbors = 50,  # Réduction pour éviter des clusters trop connectés
+          min.dist = 0.001,     # Ajustement pour éviter des clusters trop artificiels
+          spread = 2, 
+          metric = "euclidean")
+
+# Clustering
+all_data <- FindNeighbors(all_data, reduction = "harmony", dims = 1:50)
+all_data <- FindClusters(all_data, resolution = 0.5)  # Ajuste selon le dataset
+
+# Identification des marqueurs spécifiques aux clusters
+markers <- FindAllMarkers(all_data, assay = "SCT", only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+# Sauvegarde des résultats
+write.csv(markers, "Cluster_Markers.csv")
+
+# Visualisation des résultats
+DimPlot(all_data, reduction = "umap", group.by = "seurat_clusters", label = TRUE) + NoLegend()
+DimPlot(all_data, reduction = "umap", group.by = "Annotations_new", pt.size = 1)  # Vérifier l'alignement avec les annotations
+
+```
+
+```{r}
+all_data_init <- all_data_init %>% FindVariableFeatures()
+all_data <- all_data_init %>%
+      RunPCA(assay = "SCT",
+             npcs = 50) %>% 
+      RunHarmony(c("Patient", "Seq_batch", "Visium_slide"),
+                 theta = c(2, 2, 2),
+                 lambda = 1,
+                 sigma = 0.2,
+                 nclust = 150,
+                 max_iter = 50,
+                 verbose = TRUE) %>%
+      RunUMAP(assay = "SCT",
+              reduction = "harmony",
+              dims = 1:50,
+              n.neighbors = 100, 
+              min.dist = 0.001,
+              spread = 2,
+              set.op.mix.ratio = 1,
+              metric = "euclidean")
+  
+    neighbours_number_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["n.neighbors"]]
+    n_components_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["dims"]] %>% length()
+    features_number_all <- all_data@commands[["FindVariableFeatures.Spatial"]]@params[["nfeatures"]]
+    min_dist_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["min.dist"]]
+    set_op_mix_ratio_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["set.op.mix.ratio"]]
+    spread_all <- all_data@commands[["RunUMAP.Spatial.harmony"]]@params[["spread"]]
+    scale_factor_all <- all_data@commands[["NormalizeData.Spatial"]]@params[["scale.factor"]]
+    vars_to_regress_all <- all_data@commands[["ScaleData.Spatial"]]@params[["vars.to.regress"]]
+    
+    p1 <- DimPlot(all_data,
+          pt.size = 0.25,
+          reduction = "umap",
+          group.by = "Annotations_new") + 
+          scale_color_manual(values = annotation_colors) +
+          scale_shape_manual(values = shape_patients) +
+          ggtitle(paste0("All Patients - Normalized Data (" ,features_number_all, " Genes) - UMAP (" , neighbours_number_all, " Neighbours, ", n_components_all, " composantes " , scale_factor_all, " scale) - new_annot"))
+    
+    p2 <- DimPlot(all_data,
+          pt.size = 0.25,
+          reduction = "umap",
+          group.by = "Annotations_old") + 
+          scale_color_manual(values = colors_old) +
+          scale_shape_manual(values = shape_patients) +
+          ggtitle(paste0("All Patients - Normalized Data (" ,features_number_all, " Genes) - UMAP (" , neighbours_number_all, " Neighbours, ", n_components_all, " composantes " ,scale_factor_all, " scale) - old_annot"))
+    
+    ggsave(filename = paste0(neighbours_number_all, " neighrbours ", n_components_all, " component ", features_number_all, " features ", min_dist_all, " mindist ", set_op_mix_ratio_all, " opmix ", spread_all, " spread ", scale_factor_all, " scale ", "new_annot.png"), plot = p1, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+    
+    ggsave(filename = paste0(neighbours_number_all, " neighrbours ", n_components_all, " component ", features_number_all, " features ", min_dist_all, " mindist ", set_op_mix_ratio_all, " opmix ", spread_all, " spread ", scale_factor_all, " scale ", "old_annot.png"), plot = p2, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+    
+    print(paste("UMAP done"))
+```
+

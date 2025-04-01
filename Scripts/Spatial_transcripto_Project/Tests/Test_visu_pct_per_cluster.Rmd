@@ -1,0 +1,54 @@
+---
+title: "Test_visu_pct_per_cluster"
+author: "J Dutel"
+date: "2025-03-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# CHECK CLUSTER COMPOSITION
+# Check how much samples are represented in each of the clusters
+cluster_count <- as.data.frame(table(subset(sc_gsm_integrated, seurat_clusters == as.character(0))@meta.data$Patient)) # set the structure
+names(cluster_count)[1] <- "GSM_ID"
+names(cluster_count)[2] <- "ToRemove"
+cluster_count$ToRemove <- 0
+for (i in levels(sc_gsm_integrated$seurat_clusters)) {
+  print(paste("cluster ", i, sep = ""))
+  tmp_df <- as.data.frame(table(subset(sc_gsm_integrated, seurat_clusters == as.character(i))@meta.data$orig.ident))
+  names(tmp_df)[1] <- "GSM_ID"
+  names(tmp_df)[2] <- as.character(paste("Cluster_", i, sep =""))
+  cluster_count <- merge(cluster_count, tmp_df, all.x = T, all.y = T)
+}
+rownames(cluster_count) <- as.character(cluster_count$GSM_ID)
+cluster_count <- cluster_count[, 3:length(cluster_count)]
+for (i in 1:length(cluster_count)) {
+  for (j in 1:length(cluster_count[[i]])) {
+    if (is.na(cluster_count[j, i]) == T) {
+      cluster_count[j, i] <- 0
+    }
+  }
+}
+# Draw a heatmap presenting the representation of each sample in each cluster
+library(pheatmap)
+library(RColorBrewer)
+# Create the annotations needed for the heatmap (which needs dataframe structures for annotations)
+tmp_df <- data.frame(table(sc_gsm_integrated$orig.ident, sc_gsm_integrated$batch.ident))
+lines_to_manage <- c()
+for (i in 1:length(rownames(tmp_df))) {
+  if (tmp_df$Freq[i] == 0) {
+    lines_to_manage <- c(lines_to_manage, i)
+  }
+}
+tmp_df <- tmp_df[-lines_to_manage,]
+rownames(tmp_df) <- tmp_df[[1]]
+tmp_df <- tmp_df[, -1]
+colnames(tmp_df) <- c("Batch", "Cell.Count")
+# Then draw the pheatmap
+p1 <- pheatmap(cluster_count, scale = "column", cluster_rows = F, cluster_cols = F, display_numbers = F, color = colorRampPalette(brewer.pal(n = 11, name = "PRGn"))(100), cellheight = 10, cellwidth = 10, annotation_row = tmp_df)
+# You should save the heatmap from RStudio | 1000 x 535
+write.table(cluster_count, paste(reports_dir, "3_sc_gsm_integrated_SeuratClusters_ClusterCount.csv", sep=""), sep=",") # export "cluster_count" as a table
+```
