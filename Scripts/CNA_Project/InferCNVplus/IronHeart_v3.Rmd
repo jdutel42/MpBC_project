@@ -1,0 +1,3165 @@
+---
+title: "IronHeart_v3"
+author: "J Dutel"
+date: "2025-04-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(hdf5r)
+library(ggfortify)
+library(harmony)
+library(sctransform)
+library(viridis)
+library(stringr)
+library(viridisLite)
+library(patchwork)
+library(matrixStats)
+library(ggpubr)
+library(infercnvPlus)
+library(gtools)
+library(colorspace)
+library(Polychrome)
+
+
+dir_path <- "/mnt/datadisk/Jordan/Data/"
+
+# Liste des échantillons à traiter (excluant MpBC12)
+samples <- paste0("MpBC", c(1:11, 13:16))
+
+# Liste des patients par pathologie
+Squam_tum_patients <- c("MpBC3", "MpBC8")
+Epi_tum_patients <- c("MpBC1", "MpBC2", "MpBC5", "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16")
+Mes_tum_patients <- c("MpBC1", "MpBC8")
+Mes_norm_patients <- c("MpBC1", "MpBC2", "MpBC5", "MpBC6", "MpBC9", "MpBC11", "MpBC14", "MpBC15")
+Spindle_tum_patients <- c("MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC10", "MpBC11", "MpBC14")
+Osteo_tum_patients <- c("MpBC4")
+Chondro_tum_patients <- c("MpBC9", "MpBC13", "MpBC15", "MpBC16")
+```
+
+# Load data
+
+## Seurat object
+
+```{r warning=FALSE}
+# MOI
+
+# LOADING
+# Boucle pour charger et traiter chaque échantillon
+for (sample in samples) {
+  print(paste("📥 Chargement des données pour", sample, "..."))
+  
+  # Chemin des fichiers
+  data_path <- paste0(dir_path, "Visium/", sample)
+  
+  # Déterminer le batch en fonction du numéro d'échantillon
+  sample_number <- as.numeric(gsub("MpBC", "", sample))
+  
+  ## Numero batch
+  if (sample_number >= 1 & sample_number <= 8) {batch <- "batch1"} 
+  else if (sample_number >= 9 & sample_number <= 16 & sample_number != 12) {batch <- "batch2"}
+  
+  ## Numero slide
+  if (sample_number == 1 | sample_number == 2) {slide <- "slide1"} 
+  else if (sample_number == 3 | sample_number == 4) {slide <- "slide2"}
+  else if (sample_number == 5 | sample_number == 6) {slide <- "slide3"}
+  else if (sample_number == 7 | sample_number == 8) {slide <- "slide4"}
+  else if (sample_number == 9 | sample_number == 10) {slide <- "slide5"}
+  else if (sample_number == 11 | sample_number == 12) {slide <- "slide6"}
+  else if (sample_number == 13 | sample_number == 14) {slide <- "slide7"}
+  else if (sample_number == 15 | sample_number == 16) {slide <- "slide8"}
+  
+  # Charger les données 10X Spatial
+  obj <- Load10X_Spatial(data.dir = data_path, 
+                         filename = "filtered_feature_bc_matrix.h5", 
+                         assay = "Spatial", 
+                         slice = paste0("Slice_", sample)) %>% 
+    AddMetaData(metadata = batch, col.name = 'Seq_batch') %>% 
+    AddMetaData(metadata = slide, col.name = 'Visium_slide')
+
+
+  # # Il faut réajouter les noms des dimensions, car (jsp pourquoi) ils disparaissent lors de l'importation
+  # # Lire la matrice de comptage
+  # count_Matrix <- Read10X_h5(paste0(data_path, "/filtered_feature_bc_matrix.h5"))
+  # # # Extraire les dimnames de la matrice de comptage
+  # dimnames_gene <- count_Matrix@Dimnames[[1]]
+  # dimnames_cell <- count_Matrix@Dimnames[[2]]
+  # # # Affecter ces dimnames à la couche "counts" de l'assay "Spatial"
+  # dimnames_gene -> obj@assays[["Spatial"]]@layers[["counts"]]@Dimnames[[1]] 
+  # dimnames_cell -> obj@assays[["Spatial"]]@layers[["counts"]]@Dimnames[[2]]
+  # 
+  # # Rajouter MpBCX_ pour chaque barcodes
+  # new_barcode_vec <- c()
+  # ## On stocke tous les barcodes de la matrice de comptage qui ne sont pas présents dans les barcodes 
+  # # filtrés dans metadata (via les annotations) 
+  # for (old_barcode in obj@assays[["Spatial"]]@layers[["counts"]]@Dimnames[[2]]) {
+  #   new_barcode <- paste0(sample, "_", old_barcode)
+  #   new_barcode_vec <- c(new_barcode_vec, new_barcode)
+  # }
+  # obj@assays[["Spatial"]]@layers[["counts"]]@Dimnames[[2]] <- new_barcode_vec
+
+  
+  # Charger les annotations
+  annotation_new <- read.csv(paste0(data_path, "/Annotations_new_with_unlabels.csv")) %>%
+    mutate(Barcode = paste0(sample, "_", Barcode))
+  
+  annotation_old <- read.csv(paste0(data_path, "/Annotations_old_with_unlabels.csv")) %>%
+    mutate(Barcode = paste0(sample, "_", Barcode)) %>%
+    rename("Barcode_new" = Barcode)
+  
+  # Ajouter les annotations à meta.data
+  obj@meta.data <- obj@meta.data %>%
+    cbind(annotation_new, annotation_old) %>%
+    select(-Barcode_new) %>%
+    rename("Patient" = orig.ident) %>%
+    mutate(Patient = sample)
+
+  obj <- subset(obj,
+                subset = (nCount_Spatial > 0 &
+                          Annotations_old != "" & Annotations_old != "Adipose" &
+                          Annotations_old != "Artifacts" & Annotations_old != "Immune cells" &
+                          Annotations_old != "Intermediate tumour cells" & Annotations_old != "Mixed cells" &
+                          Annotations_old != "Necrosis" & Annotations_old != "Necrotic and apoptotic tissue" &
+                          Annotations_old != "NST surrounded by spindle" & Annotations_old != "Scar-like fibrous stroma" &
+                          Annotations_new != "Pleiomorphic tumor"))
+  
+  # Rajouter MpBCX_ pour chaque barcodes
+  # for (barcode in colnames(obj@assays$Spatial)) {
+  #   new_barcode <- paste0(sample, "_", barcode)
+  #   colnames(obj@assays$Spatial)[colnames(obj@assays$Spatial) == barcode] <- new_barcode
+  # }
+  # OU
+  obj <- RenameCells(obj, add.cell.id = sample)
+  
+  # Convertir les données dans orig.ident en facteur
+  obj$Seq_batch <- as.factor(obj$Seq_batch)
+  obj$Visium_slide <- factor(obj$Visium_slide)
+  
+  # Sauvegarder l'objet dans l'environnement sous le nom "MpBCX"
+  assign(sample, obj)
+  
+  # On fait le propre
+  rm(annotation_old, annotation_new, obj)
+  
+  
+  
+  
+  print(paste("✅ Données chargées pour", sample))
+
+}
+
+# On change samples pour qu'il contienne les objets Seurat en eux-même (plutôt que les noms des objets (charcters))
+samples <- list(MpBC1, MpBC2, MpBC3, MpBC4, MpBC5, MpBC6, MpBC7, MpBC8, MpBC9, MpBC10, MpBC11, MpBC13, MpBC14, MpBC15, MpBC16)
+names(samples) <- c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16")
+samples_names <- names(samples)
+  
+  
+print("🎉 Tous les échantillons ont été traités avec succès !")
+
+```
+
+
+## GTF file
+
+On prend le GTF de l'Homme (version hg38) pour récupérer les positions des gènes dans le génome.
+
+```{r}
+# Créer un fichier contenant les positions des gènes dans le génome à partir du GTF (long)
+# genomic_pos <- gtf_to_position(
+#   gtf = "/mnt/datadisk/Jordan/Data/GTF/Original/Homo_sapiens.GRCh38.113.chr.gtf",
+#   # gtf = "/mnt/datadisk/Jordan/Data/GTF/Original/gencode.v47.basic.annotation.gtf",
+#   out_file = "genomic_positions.txt",
+#   out_path = "/mnt/datadisk/Jordan/Data/GTF/InferCNVplus/")
+
+# Importer la table fait plus haut avec le GTF
+genomic_pos <- read.table("/mnt/datadisk/Jordan/Data/GTF/InferCNVplus/genomic_positions.txt", 
+                          header = TRUE, 
+                          row.names = 1)
+```
+
+# Create Refgroup
+
+```{r}
+# On va créer un vecteur contenant tous les ID des cellules/spots de la matrice de compte (dans l'obet Seurat) considérés comme réference = "Normal épithélium", "Normal mesenchyme", "Blood"...
+
+# On merge les MpBC en un seul objet seurat plus pratique pour ne garder que les cellules reférences
+MpBC_merged <- merge(MpBC1, 
+                       y = c(MpBC2, MpBC3, MpBC4, MpBC5, MpBC6, MpBC7, MpBC8, 
+                             MpBC9, MpBC10, MpBC11, MpBC13, MpBC14, MpBC15, MpBC16), 
+                       project = "MpBC_Visium") %>% 
+  JoinLayers()
+
+
+# Convertir les données dans orig.ident en facteur
+MpBC_merged$Patient <- factor(MpBC_merged$Patient, 
+                                levels = c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", 
+                                           "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16"))
+MpBC_merged$Seq_batch <- factor(MpBC_merged$Seq_batch, 
+                                  levels = c("batch1", "batch2"))
+MpBC_merged$Visium_slide <- factor(MpBC_merged$Visium_slide, 
+                                     levels = c("slide1", "slide2", "slide3", "slide4", 
+                                                "slide5", "slide6", "slide7", "slide8"))
+
+print("✅ MpBC_merged créé")
+
+# On crée un objet seurt ne contenant que les cellules de référence de tous les patents (ainsi on a directement notre matrice de reférence)
+Ref_MpBC <- subset(MpBC_merged,
+                   subset = 
+                     (Annotations_old %in% c("Blood")) |
+                     (Annotations_new %in% c("Normal epithelium", "Normal mesenchyme")) )
+
+# Sélectionner les cellules normales et récupérer leurs rownames, on stocke les ID des spots dans un vecteur pour plus tard
+ref_cells <- Cells(Ref_MpBC)
+
+# On créé des nouveaux nouveaux objets Seurat pour chaque échantillon AVEC les comptages des cellules de référence de tous les patients
+for (sample_name in samples_names) {
+  
+  sample <- get(sample_name)
+  
+  # On enlève les ref_cells déjà present dans chaque échantillon (sinon il y a des duplications de cellule)
+  sample <- subset(sample, 
+                   subset = Annotations_old != "Blood" )
+  sample <- subset(sample,
+                   subset = Annotations_new != "Normal epithelium" )
+  sample <- subset(sample,
+                   subset = Annotations_new != "Normal mesenchyme")
+
+  # On ajoute TOUTES les cellules de reference pour chaque échantillons avec un merge des matrices de comptage
+  assign(sprintf("%s_with_ref", sample_name),
+         merge(sample, Ref_MpBC) %>% 
+           JoinLayers())
+  
+  print(paste("✅ Création de l'objet Seurat avec les cellules de référence pour", sample_name))
+  
+}
+
+```
+
+# InferCNVplus
+
+```{r}
+for(sample_name in samples_names) {
+  
+  print(paste("Preprocessing InferCNVplus for", sample_name))
+  
+  # COUNT MATRIX
+  # On ne garde que la matrice de comptage des nouveaux objets Seurat avec toutes les cellules de reférence
+  sample <- get(sprintf("%s_with_ref", sample_name))
+
+  obj <- importSrat(sample,
+                    slot = "counts", 
+                    assay = "Spatial",
+                    log2tpm_tr = TRUE) %>%
+    umi_to_log2tpm() # On transforme les count de la matrice en Transcript Par Million
+  
+  assign(sprintf("matrix_count_%s", sample_name), 
+         obj)
+
+  print(paste("✅ Matrice de comptage extraite pour",  sample_name))
+
+  # Un peu de nettoyage !
+  rm(list = c("MpBC_merged", "Ref_MpBC", "obj",
+              "MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8",
+              "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16",
+              sprintf("%s_with_ref", sample_name) ))
+  gc()
+
+
+  print("✅ Ménage effectué")
+  
+  
+  print(paste("Starting InferCNVplus for", sample_name))
+  
+  # INFERCNV PLUS 
+  # compute CNA scores
+  assign(sprintf("cnv_obj_%s", sample_name),
+         inferCNV(data = eval(str2expression(sprintf("matrix_count_%s", sample_name))),
+                  gene_pos = genomic_pos,
+                  cutoff = 0.1, # 0.1 for 10x-genomics
+                  reference_obs = as.vector(ref_cells),
+                  window_size = 101,
+                  out_path = "output_dir", 
+                  noise_filter = NULL,
+                  vis_bounds = "-1,1"))
+  
+  print(paste("✅ CNA scores computed for", sample_name))
+  
+  
+  
+  print(paste("Sauvegarde de l'objet inferCNV pour", sample_name))
+  
+  # Récupérer l'objet InferCNV
+  cnv_obj <- get(sprintf("cnv_obj_%s", sample_name))
+  
+  # Sauvegarder l'objet
+  saveRDS(cnv_obj, 
+          sprintf("/mnt/datadisk/Jordan/Data/CNA/cnv_obj_%s.rds", sample_name))
+  
+  print(paste("✅ Objet sauvegardé pour", sample_name))
+
+
+
+  # Encore du ménage ! Il faut de la place !
+  rm(list = c(sprintf("matrix_count_%s", sample_name),
+              sprintf("cnv_obj_%s", sample_name),
+              "cnv_obj") )
+  
+  print(paste("✅ Ménage finale effectué pour", sample_name))
+}
+```
+
+
+Si on veut pas tout recalculer !
+
+```{r}
+for (sample_name in samples_names) {
+  
+  # Charger le RDS
+  cnv_obj <- readRDS(sprintf("/mnt/datadisk/Jordan/Data/CNA/cnv_obj_%s.rds", sample_name))
+  
+  # Assigner l'objet
+  assign(sprintf("cnv_obj_%s", sample_name), cnv_obj)
+  
+  print(paste("✅ Objet cnv_obj_", sample_name, " chargé et assigné", sep = ""))
+  
+}
+```
+
+# Downstream analysis
+
+# Cytoband processing
+
+```{r}
+cytobands <- read.csv("/mnt/datadisk/Jordan/Data/Cytoband/cytoBand.txt", 
+                      sep = "",
+                      header = FALSE,
+                      stringsAsFactors = TRUE)
+
+## remove abnormal choromosomes ------------------------------------------------
+
+cytobands <- cytobands[!grepl("_", cytobands$V1, fixed = TRUE),]
+cytobands <- cytobands[!grepl("chrM", cytobands$V1, fixed = TRUE),]
+cytobands$V1 <- str_remove_all(cytobands$V1, "chr") 
+
+
+## replace X and Y chromosomes by numbers --------------------------------------
+
+cytobands$V1[cytobands$V1 == "X"] <- "23"
+cytobands$V1[cytobands$V1 == "Y"] <- "24"
+
+
+## change type of the chromosomes from strings to integers----------------------
+
+cytobands$V1 <- lapply(cytobands$V1, strtoi)
+
+
+## replace again X and Y -------------------------------------------------------
+ 
+cytobands$V1[cytobands$V1 == 23] <- "X"
+cytobands$V1[cytobands$V1 == 24] <- "Y"
+
+
+## rename columns so that it's more obvious when calling them-------------------
+
+colnames(cytobands)[4] <-  "cytoband"
+colnames(cytobands)[1] <-  "chromosome"
+
+cytobands <- cytobands %>% 
+  mutate(Loc = paste0(chromosome, cytoband))
+```
+
+
+On a au total 862 cytobandes mineures (p36.1, p36.2, p36.3...) pour tous mes chromosomes.
+On peut les regrouper en cytobandes majeures (p36).
+
+```{r}
+# On va regrouper les cytobands mineures en cytobands majeures dans un nouveau dataframe
+cytobands_maj <- cytobands %>%
+  # mutate(start = as.numeric(V2),
+  #        end = as.numeric(V3)) %>%
+  mutate(cytoband = gsub("\\..*", "", cytoband)) %>%
+  group_by(chromosome, cytoband) %>%
+  summarise(V2 = min(V2), V3 = max(V3), Loc = Loc, .groups = "drop") %>%
+  arrange(chromosome, V2) %>% 
+  relocate(cytoband, .after = V3)
+
+# Nombre de cytobandes mineures et majeures
+print(paste0("Le nombre de cytobandes mineures est de : ", length(cytobands$cytoband)))
+print(paste0("Le nombre de cytobandes majeures est de : ", length(cytobands_maj$cytoband)))
+
+```
+
+On a donc 320 cytobandes majeures.
+
+```{r}
+# Si on veut utiliser les cytobandes majeures plutôt que mineures
+cytobands <- cytobands_maj
+```
+
+
+Collect all the genes names
+
+```{r}
+genes <- c(rownames(genomic_pos))
+ref_genes<- data.frame(genes)
+```
+
+The aim is to position each gene on a cytoband. To do so, the following function has been created:
+
+```{r}
+
+# function that takes as input the chromosome number and start position 
+# of a gene and returns the cytoband -----
+
+  ## x : chromosome number
+  ## s : position of start of the gene
+
+search_in_cytobandsref <- function(x, s) {
+  # On stocke dans c, les lignes/les infos du df cytobands correspondant au chromosome x ((les cytobandes du chromosome x))
+  c <- cytobands[which(cytobands$chromosome == x), ]
+  # Pour chaque cytoband stockée du chromosome x 
+  for (i in 1:nrow(c)) {
+    # Si le start de ton gène est compris entre les deux bornes start et stop de la cytobandes considérées (apres le start (= col 2), et apres le end (= col 3)), on return le nom du cytoband correspondant
+    if (s >= c[i,2] &  s < c[i,3]) {
+      return((c[i,4]))
+    }
+  }
+}
+
+## assign to each of the reference genes the cytoband on which it is located 
+
+assigned_cytoband <- list()
+
+# POur chaque gènes qui existe dans ref_genes
+for (g in 1:nrow(ref_genes)){
+  # On stocke dans c la cytobande correspondante au gène considéré dans ref_genes
+  c <- search_in_cytobandsref(genomic_pos[ref_genes$genes[g], 1], # chromosome number du gène considéré dans ref_genes
+                              genomic_pos[ref_genes$genes[g], 2]) # start position du gène considéré dans ref_genes
+  # On ajoute la cytobande trouvée à la liste assigned_cytoband
+  assigned_cytoband <- append(assigned_cytoband, droplevels(c[1]))
+}
+
+# On ajoute la liste des cytobandes trouvées à ref_genes
+ref_genes$cytoband <- assigned_cytoband # add the cytobands variable
+# Les 41 081 gènes de ref_genes ont maintenant une cytobande assignée.
+
+# Est ce qu'il y a des cytobandes qui n'ont pas été représentées dans les gènes de références ?
+## Vérifier le fichier genomic_pos... Et pourquoi 41 000 gènes ?
+# De ce que j'ai pu lire, toutes les cytobandes ne contiennent pas forcément des gènes (hétérochromatine au noveau des télomère et centromères), cela pourrait expliquer le fait que je pers ces cytobandes, car aucun gène n'est assigné dessus.
+
+# On ajoute les chromosomes correspondants aux gènes dans ref_genes
+ref_genes$chromosome <- 0
+ref_genes$chromosome <- genomic_pos$CHR[ref_genes$genes == rownames(genomic_pos)]
+
+
+# nrow(unique(ref_genes[, c("chromosome", "cytoband")]))  # Renvoie les paires uniques chromosome/cytobande
+# [1] 822  ==> J'ai donc 822 cytobandes mineures différentes pour mes 41 081 gènes ==> Etranges pourquoi pas mes 862 cytobandes mineures initiales. Il manque 40 cytobandes mineures
+# [1] 303  ==> J'ai donc 303 cytobandes majeures différentes pour mes 41 081 gènes ==> Etranges pourquoi pas mes 320 cytobandes majeures initiales. Il manque 17 cytobandes majeures
+
+```
+
+
+```{r}
+# Savoir les cytobandes qui n'ont pas été assignées
+cytobandes_chrom_ref_genes <- unique(ref_genes[, c("chromosome", "cytoband")])
+cytobandes_chrom_cytobands <- unique(cytobands[, c("chromosome", "cytoband")])
+
+cytobandes_chrom_ref_genes <- cytobandes_chrom_ref_genes %>%
+  mutate(across(c(chromosome, cytoband), as.character))
+
+cytobandes_chrom_cytobands <- cytobandes_chrom_cytobands %>%
+  mutate(across(c(chromosome, cytoband), as.character))
+
+# Maintenant, l'intersection devrait fonctionner :
+setdiff_cytoband_chrom <- setdiff(cytobandes_chrom_cytobands, cytobandes_chrom_ref_genes)
+head(setdiff_cytoband_chrom)
+
+
+# ==> Conclusion : 
+# Comme j'enleve le chromosome Y et d'autres chromosomes bisarre, que certianes cytobandes sont parfois petites et/ou localisés à des endroits des chromosomes (hétérochromatine) avec des cytobandes dans des régons centromériques et télomériques  où il n'y a pas ou très peu de gènes, je ne les retoruve donc pas dans mes data car peu exprimé, cela explique pourquoi je perds quelques unes des cytobandes.
+```
+
+# Compute median CNA score for each cytoband per spot
+
+```{r}
+# Compute median CNA score for each cytoband per spot -------------------------
+for (sample_name in samples_names) {
+  
+  # Charger l'objet RDS
+  cnv_obj <- readRDS(sprintf("/mnt/datadisk/Jordan/Data/CNA/cnv_obj_%s.rds", sample_name))
+  
+  # Assignation dynamique de l'objet
+  assign(sprintf("cnv_obj_%s", sample_name), cnv_obj)
+  
+  print(paste("✅ Objet cnv_obj_", sample_name, " chargé et assigné", sep = ""))
+
+  # add to the data frame a column with the information corresponding -----------
+  # to the cytoband
+  
+  cnv_df <- as.data.frame(eval(str2expression(sprintf("cnv_obj_%s",sample_name)))$cnv_score_vis)
+  
+  # create cnv_cyt var : vector containing the cytobands in which each gene is  
+  #        chromosomes : vector containing the chromosomes in which each gene is  
+  
+  cnv_cyt <- c()
+  chromosomes <- c()
+  
+  for (j in 1:length(rownames(cnv_df))){
+    
+    cnv_cyt <- c(cnv_cyt, 
+                 as.character(ref_genes$cytoband[ref_genes$genes == 
+                                                   rownames(cnv_df)[j]]))
+    
+    chromosomes <- c(chromosomes, 
+                     ref_genes$chromosome[ref_genes$genes == 
+                                            rownames(cnv_df)[j]])
+  }
+  
+  cnv_df <- cbind(cnv_df,cnv_cyt)
+  
+  cnv_df <- cbind(cnv_df,chromosomes)
+  
+  # retrieving the colnames that are neither called cnv_cyt nor chromososmes 
+  # since we aggregate by those columns
+  
+  tmp <- colnames(cnv_df)[-which(colnames(cnv_df) == "cnv_cyt"
+                                 | colnames(cnv_df) == "chromosomes")]
+
+  # # aggregate the scores using median by the $cnv_cyt and $chromosomes columns
+  # 
+  print("Aggregating CNA scores by cytoband and chromosome")
+  cnv_df <- aggregate(x = cnv_df[, tmp], by = list(cnv_df$chromosomes, cnv_df$cnv_cyt), FUN = median)
+  print("✅ CNA scores aggregated by cytoband and chromosome")
+  
+  # # rename the cnv_cyt and chromosomes columns since they are changes to 
+  # #group.x1 group.x2 after aggregation 
+  # 
+  colnames(cnv_df)[1:2]<- c("chromosomes", "cnv_cyt")
+  
+  
+  # Pourquoi je passe de 862 cytobandes mineures à 710 cytobandes après cette étape ? (152 cytobandes en moins)
+  # Pourquoi je passe de 320 cytobandes majeures à 273 et quelques cytobandes mineures ?
+  # Je me demande si les cytobandes perdues ne correspondent pas aux cytobandes des chromosomes Y et M (qui ont été enlevés au début) et surtout des gènes de ces cytobandes n'ont retrouvé pour les cellules de références (car on compare avec les cellules de references (qu peut etre n'ont pas toutes les cytobande exprimées... ????))
+  
+  
+  
+  
+  
+  
+  
+  
+# ############# On Agrege aussi par barcode ###########################
+#   
+#   median_barcode <- c()
+#   for (row in 1:nrow(cnv_df)){
+#     # Agrégation des scores pour chaque barcodes
+#     cnv_scores_barcode <- as.numeric(unlist(c(cnv_df[row, 3:ncol(cnv_df)])))
+#     median_barcode <- c(median_barcode,
+#                         median(cnv_scores_barcode) )
+#   }
+#   cnv_df <- cnv_df[,c("chromosomes", "cnv_cyt")] %>% 
+#     mutate(CNA_score = median_barcode)
+#     
+# #####################################################################
+  
+  
+  
+  
+  
+  # remove the counts corresponding to the chromosome Y
+  
+  assign(sprintf("cnv_df_%s",sample_name), cnv_df[-c(which(cnv_df$chromosome == "Y")), ])
+  
+  # On fait du ménage
+  rm(list = c(sprintf("cnv_obj_%s", sample_name)))
+  rm(list = c("cnv_obj", "tmp", "cnv_cyt", "chromosomes"))
+  
+  
+}
+
+print("✅ CNA scores aggregated by cytoband and chromosome for all samples")
+```
+
+```{r}
+df1 <- pivot_longer(data = cnv_df_MpBC1,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df2 <- pivot_longer(data = cnv_df_MpBC2,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df3 <- pivot_longer(data = cnv_df_MpBC3,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df4 <- pivot_longer(data = cnv_df_MpBC4,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df5 <- pivot_longer(data = cnv_df_MpBC5,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df6 <- pivot_longer(data = cnv_df_MpBC6,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df7 <- pivot_longer(data = cnv_df_MpBC7,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df8 <- pivot_longer(data = cnv_df_MpBC8,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df9 <- pivot_longer(data = cnv_df_MpBC9,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df10 <- pivot_longer(data = cnv_df_MpBC10,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df11 <- pivot_longer(data = cnv_df_MpBC11,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df13 <- pivot_longer(data = cnv_df_MpBC13,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df14 <- pivot_longer(data = cnv_df_MpBC14,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df15 <- pivot_longer(data = cnv_df_MpBC15,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df16 <- pivot_longer(data = cnv_df_MpBC16,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+print("✅ Dataframes created")
+
+# merge the dataframes with the annotation dataframes ----------------------------
+# rm(cnv_df_MpBC1, cnv_df_MpBC2, cnv_df_MpBC3, cnv_df_MpBC4, cnv_df_MpBC5, cnv_df_MpBC6, cnv_df_MpBC7, cnv_df_MpBC8, cnv_df_MpBC9, cnv_df_MpBC10, cnv_df_MpBC11, cnv_df_MpBC13, cnv_df_MpBC14, cnv_df_MpBC15, cnv_df_MpBC16)
+```
+
+```{r}
+
+annotations_df <- data.frame()
+
+for (sample_name in samples_names) {
+    # Charger les annotations
+  annotation_new <- read.csv(paste0("/mnt/datadisk/Jordan/Data/Visium/", sample_name, "/Annotations_new_with_unlabels.csv")) %>%
+    mutate(Barcode = paste0(sample_name, "_", Barcode)) 
+  
+  annotation_old <- read.csv(paste0("/mnt/datadisk/Jordan/Data/Visium/", sample_name, "/Annotations_old_with_unlabels.csv")) %>%
+    mutate(Barcode = paste0(sample_name, "_", Barcode))
+
+  annotation <- merge(annotation_new, annotation_old, by = "Barcode") %>% 
+    filter(Annotations_old != "" & Annotations_old != "Adipose" &
+             Annotations_old != "Artifacts" & Annotations_old != "Immune cells" &
+             Annotations_old != "Intermediate tumour cells" & Annotations_old != "Mixed cells" &
+             Annotations_old != "Necrosis" & Annotations_old != "Necrotic and apoptotic tissue" &
+             Annotations_old != "NST surrounded by spindle" & Annotations_old != "Scar-like fibrous stroma" &
+             Annotations_new != "Pleiomorphic tumor") %>% 
+    mutate(Annotations_new = case_when(
+      Annotations_new == "" ~ "Blood",
+      TRUE ~ Annotations_new
+    ))
+  
+  annotations_df <- rbind(annotations_df, annotation)
+  
+  print(paste0("Construction du dataframe d'annotations pour ", sample_name, " terminé !"))
+}
+
+
+
+```
+
+```{r}
+print("Merging dataframes")
+
+for (sample_name in samples_names) {
+  #   # Charger les annotations
+  # annotation_new <- read.csv(paste0("/mnt/datadisk/Jordan/Data/Visium/", sample_name, "/Annotations_new_with_unlabels.csv")) %>%
+  #   mutate(Barcode = paste0(sample_name, "_", Barcode)) 
+  # 
+  # annotation_old <- read.csv(paste0("/mnt/datadisk/Jordan/Data/Visium/", sample_name, "/Annotations_old_with_unlabels.csv")) %>%
+  #   mutate(Barcode = paste0(sample_name, "_", Barcode))
+  # 
+  # annotation <- merge(annotation_new, annotation_old, by = "Barcode") %>% 
+  #   filter(Annotations_old != "" & Annotations_old != "Adipose" &
+  #            Annotations_old != "Artifacts" & Annotations_old != "Immune cells" &
+  #            Annotations_old != "Intermediate tumour cells" & Annotations_old != "Mixed cells" &
+  #            Annotations_old != "Necrosis" & Annotations_old != "Necrotic and apoptotic tissue" &
+  #            Annotations_old != "NST surrounded by spindle" & Annotations_old != "Scar-like fibrous stroma" &
+  #            Annotations_new != "Pleiomorphic tumor") %>% 
+  #   mutate(Annotations_new = case_when(
+  #     Annotations_new == "" ~ "Blood",
+  #     TRUE ~ Annotations_new
+  #   ))
+
+  number <- gsub("[^0-9]", "", sample_name)
+  df_MpBCX_annot <- merge(get(sprintf("df%s", number)), 
+                         annotations_df, 
+                         by = "Barcode",
+                         all.x =  TRUE,
+                         all.y = FALSE)
+  
+  assign(sprintf("df_%s_annot", sample_name), 
+         df_MpBCX_annot)
+  
+  print(paste0("Construction du dataframe finale ", sample_name, " terminé !"))
+  
+}
+
+
+saveRDS(list(df_MpBC1_annot, df_MpBC2_annot, df_MpBC3_annot, df_MpBC4_annot, df_MpBC5_annot, df_MpBC6_annot, df_MpBC7_annot, df_MpBC8_annot, df_MpBC9_annot, df_MpBC10_annot, df_MpBC11_annot, df_MpBC13_annot, df_MpBC14_annot, df_MpBC15_annot, df_MpBC16_annot),
+        "/mnt/datadisk/Jordan/Data/CNA/df_MpBCX_annot.rds")
+
+```
+
+```{r}
+# Importer les df pour éviter de les recalculer
+df_list <- readRDS("/mnt/datadisk/Jordan/Data/CNA/df_MpBCX_annot.rds")
+
+```
+
+# Plotting
+
+
+```{r}
+i = 1
+
+comparaison_tissus_cnv <- list(
+  "MpBC1" = c("Epithelial tumor", "Mesenchymal tumor"),
+  "MpBC2" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC3" = c("Squamous tumor", "Spindle cell tumor"),
+  "MpBC4" = c("Osteosarcomatoid tumor", "Spindle cell tumor"),
+  "MpBC5" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC6" = c("Normal mesenchyme", "Spindle cell tumor"),
+  "MpBC7" = c("Normal epithelium", "Spindle cell tumor"),
+  "MpBC8" = c("Squamous tumor", "Mesenchymal tumor"),
+  "MpBC9" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC10" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC11" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC13" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC14" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC15" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC16" = c("Epithelial tumor", "Chondroid tumor")
+)
+
+corr_value_list <- list()
+
+for (sample_name in samples_names) {
+  
+  
+  ############################# Heatmap #############################
+  
+  print(paste0("🔍  Comparaison des tissus pour ", sample_name))
+  
+  df_MpBCX_annot <- df_list[[i]][c(which(df_list[[i]]$Annotations_new == comparaison_tissus_cnv[[sample_name]][1] | 
+                                        df_list[[i]]$Annotations_new == comparaison_tissus_cnv[[sample_name]][2])),]
+  
+  # On reorganise les chrom dans le bon ordre
+  df_MpBCX_annot$chromosomes <- factor(df_MpBCX_annot$chromosomes, 
+                                      levels = mixedsort(unique(df_MpBCX_annot$chromosomes)))
+  
+  df_MpBCX_annot_new <- df_MpBCX_annot %>%
+    group_by(chromosomes, cnv_cyt, Annotations_new) %>%
+    summarise(median_CNA_score = median(CNA_score, na.rm = TRUE), .groups = "drop")
+
+
+  # On créé le plot
+  output <- ggplot(df_MpBCX_annot_new, aes(x = cnv_cyt, y = Annotations_new, fill = median_CNA_score)) +
+    geom_raster() +
+    scale_fill_gradient2(low = "blue", high = "red", mid= "white", midpoint = 0) +
+    # scale_fill_viridis(option = "C", discrete = FALSE) +  # Utilisation de la palette Viridis
+    ggtitle(paste0("Median CNA scores in cytobands, per cell type - ", sample_name)) +
+    theme_bw() +
+    labs(x = "Cytobands", y = "Tissue") +
+    theme(
+      # axis.text.x = element_text(angle = 90, hjust = 1, size = 1),
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks.length = unit(1, "mm"),
+      axis.ticks.x = element_line(size = 0.1),
+      axis.ticks.y = element_blank(),
+      panel.spacing.x = unit(0, "line"),
+      plot.title = element_text(hjust = 0.5)
+      ) +
+    geom_tile() +
+    facet_grid(rows = vars(Annotations_new),
+               cols = vars(chromosomes),
+               scales = "free",
+               space = "free")
+  print(output)
+
+  # Sauvegarder le plot
+  pdf(file = paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/InferCNV_", sample_name, "_median_barcode_big.pdf"), width = 20, height = 10)
+  print(output)
+  dev.off()
+
+  print(paste0("✅  Heatmap pour ", sample_name, " terminé !"))
+  
+  
+  
+  
+  
+  
+
+
+
+  ############################# Correlation plot #############################
+
+  print(paste0("Création du CorrPlot pour ", sample_name))
+  # Corrélation Plot
+  # Fusionner les données en utilisant les cytobandes communes
+  first_tissu_data <- df_MpBCX_annot_new[df_MpBCX_annot_new$Annotations_new == comparaison_tissus_cnv[[sample_name]][1], c("chromosomes", "cnv_cyt", "median_CNA_score")]
+  second_tissu_data <- df_MpBCX_annot_new[df_MpBCX_annot_new$Annotations_new == comparaison_tissus_cnv[[sample_name]][2], c("chromosomes", "cnv_cyt", "median_CNA_score")]
+
+  first_tissu_subset <- first_tissu_data
+  second_tissu_subset <- second_tissu_data
+
+  merged_data <- merge(first_tissu_subset, second_tissu_subset,
+                       by = c("chromosomes", "cnv_cyt"),
+                       suffixes = c("_first_tissue", "_second_tissue"))
+
+  correlation_score <- cor(x = merged_data$median_CNA_score_first_tissue,
+                           y = merged_data$median_CNA_score_second_tissue,
+                           method = "pearson")
+  
+  corr_value_list[[sample_name]] <- correlation_score
+  print("Correlation score stored")
+
+  # Variables pour les axes
+  x <- merged_data$median_CNA_score_first_tissue
+  y <- merged_data$median_CNA_score_second_tissue
+
+
+
+# Vérifier que x et y ne sont pas vides ou entièrement NA
+if (length(x) > 0 && length(y) > 0 && any(!is.na(x)) && any(!is.na(y))) {
+    
+    # Ouvrir un fichier PDF pour sauvegarder le plot
+    pdf(file = paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/bis_CorrPlot_", sample_name, ".pdf"), 
+        width = 10, height = 10)  
+
+    # Déterminer les limites de l'axe en évitant les valeurs infinies
+    x_lim <- range(x, na.rm = TRUE)
+    y_lim <- range(y, na.rm = TRUE)
+
+    if (all(is.finite(x_lim)) && all(is.finite(y_lim))) {
+        
+        # Générer une palette de couleurs en fonction du nombre unique de chromosomes
+        unique_chromosomes <- unique(merged_data$chromosomes)
+        unique_chromosomes <- sort(unique_chromosomes)  # Trie numérique puis alphabétique
+        # colors <- rainbow(length(unique_chromosomes))  # Utilisation d'une palette de couleurs
+        # colors <- glasbey.colors(32)
+        colors <- palette36.colors(36)
+        color_map <- setNames(colors, unique_chromosomes)  
+        point_colors <- color_map[as.character(merged_data$chromosomes)]  # Assigner les couleurs aux points
+        
+        # Générer le plot avec couleurs par chromosome
+        plot(x, y, 
+             xlab = paste0("CNA Score - ", comparaison_tissus_cnv[[sample_name]][1]), 
+             ylab = paste0("CNA Score - ", comparaison_tissus_cnv[[sample_name]][2]), 
+             main = paste0(sample_name, " - Correlation Plot - ", 
+                           comparaison_tissus_cnv[[sample_name]][1], 
+                           " vs ", 
+                           comparaison_tissus_cnv[[sample_name]][2], 
+                           " \nPearson's Correlation: ", round(correlation_score, 2)), 
+             col = point_colors,  # Coloration selon le chromosome
+             pch = 19, 
+             cex = 1.5,  
+             xlim = x_lim + c(-0.1, 0.1), 
+             ylim = y_lim + c(-0.1, 0.1)
+        )
+
+        # Ajouter la ligne de régression
+        abline(lm(y ~ x), col = "red", lwd = 2, lty = 2)
+        abline(a = 0, b = 1, col = "black", lwd = 2, lty = 1)
+
+
+        # # Ajouter le texte avec la corrélation
+        # text(x = max(x, na.rm = TRUE) * 0.7, 
+        #      y = max(y, na.rm = TRUE) * 0.8, 
+        #      labels = paste("Correlation:", round(correlation_score, 2)), 
+        #      cex = 1.2, font = 2, col = "black")
+        
+        # legend("bottomright", 
+        #  legend = c(unique_chromosomes, "Régression linéaire", "y = x"), 
+        #  col = c(colors, "red", "black"), 
+        #  lty = c(rep(NA, length(unique_chromosomes)), 2, 1),  # Pas de ligne pour les chromosomes
+        #  pch = c(rep(19, length(unique_chromosomes)), NA, NA),  # Symboles pour les chromosomes
+        #  lwd = c(rep(NA, length(unique_chromosomes)), 2, 2),  # Pas de largeur pour les chromosomes
+        #  title = "Chromosomes et Droites")
+        
+        legend("topleft", 
+               # x = 0.4269, y = -0.379,
+         legend = c("y = x", "Régression linéaire"), 
+         col = c("black", "red"), 
+         lty = c(1, 2), 
+         lwd = 2, 
+         title = "Droites")
+        
+        # Ajouter une légende pour les chromosomes
+        legend("bottomright", 
+               legend = unique_chromosomes, 
+               col = colors, 
+               pch = 19, 
+               title = "Chromosomes")
+
+    } else {
+        warning("⚠️ Impossible de tracer le plot : x ou y contient uniquement des valeurs infinies ou NA.")
+    }
+
+    # Fermer le fichier PDF
+    dev.off()
+
+    print(paste0("✅ Correlation plot pour ", sample_name, " terminé et sauvegardé !"))
+
+} else {
+    warning("⚠️ Pas assez de données valides pour générer le plot.")
+}
+
+
+
+
+  # On incrémente l'index pour les échantillons suivants
+  i = i + 1
+  
+}
+  
+```
+
+
+C'est intéressant : A retenir >>> Amplification sur la fin du chromosomes 8 pour les tumeurs épithéliales (un peu retrouvé dans tous les patients) cytobandes mineures
+
+# Box Plot
+```{r}
+# Boxplot
+df_corr <- data.frame(sample_name = names(corr_value_list), corr_value = unlist(corr_value_list))
+
+boxplot(df_corr$corr_value,
+        main = "Distribution des coefficients de corrélation",
+        ylab = "Coefficient de corrélation (Pearson)",
+        col = "lightblue",
+        border = "blue",
+        notch = FALSE)
+
+# boxplot(df_corr$corr_value)
+# 
+# ggplot(df_corr, aes(x = "all 15 patients", y = corr_value)) + 
+#   geom_boxplot() + 
+#   xlab("") + 
+#   theme_grey(base_size = 16)
+# 
+# ggplot(df_corr, aes(x = "all 15 patients", y = corr_value)) + 
+#   geom_boxplot(fill = "lightblue", color = "blue", notch = FALSE) +  
+#   geom_jitter(aes(color = factor(patient)), width = 0.1, size = 2, alpha = 0.7, color = "red") + 
+#   # geom_text(aes(label = sample_name), size = 2) +  
+#   xlab("") + 
+#   theme_grey(base_size = 16)
+
+# Save the plot
+
+png(file = "/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/Correlation_Boxplot.png", width = 800, height = 800)
+boxplot(df_corr$corr_value, main = "Distribution des coefficients de corrélation", ylab = "Coefficient de corrélation (Pearson)", col = "lightblue", border = "blue", notch = FALSE)
+dev.off()
+
+```
+
+
+# Test stats par bras chromosomiques
+
+```{r}
+# Faire un gros dataframe qui recapitule tout
+
+my_df <- df_list[[1]]
+for (df in df_list) {
+  my_df <- rbind(my_df, df)
+}
+  
+my_df <- my_df %>% 
+  rename(Chromosome = chromosomes, Cytobande = cnv_cyt) %>%  # Renommer d'abord
+  mutate(Patient = gsub("(MpBC\\d*).*", "\\1", my_df$Barcode),
+         Loc = paste0(Chromosome, Cytobande),
+         Bras_chromosomique = paste0(Chromosome, substr(Cytobande, 1, 1))) %>%
+  select(Barcode, Patient, Annotations_new, Annotations_old, Loc, Chromosome, Bras_chromosomique, Cytobande, CNA_score)
+
+saveRDS(my_df, "/mnt/datadisk/Jordan/Data/CNA/my_df.rds")
+
+```
+
+```{r}
+my_df <- readRDS("/mnt/datadisk/Jordan/Data/CNA/my_df.rds")
+```
+
+
+```{r}
+# On reagrde si nos données sont normalement distribuées
+hist(my_df$CNA_score, breaks = 50, main = "Distribution de CNA_score", xlab = "CNA_score", probability = TRUE)
+lines(density(df_patient$CNA_score), col = "red", lwd = 2)
+```
+
+```{r}
+qqnorm(my_df$CNA_score)
+qqline(my_df$CNA_score, col = "red", lwd = 2)
+```
+
+Nos données sont normalement distribuées, on peut donc utiliser un t-test pour comparer les bras chromosomiques.
+
+```{r}
+# Liste pour stocker les résultats par patient
+results_list <- list()
+
+# Boucle sur chaque patient
+for (patient in unique(my_df$Patient)) {
+  
+  # Sous-ensemble des données du patient
+  df_patient <- my_df %>% filter(Patient == patient)  %>% 
+    group_by(Loc) %>%
+    # summarise(median_CNA_score = median(CNA_score, na.rm = TRUE), .groups = "drop")
+    mutate(median_CNA_score = median(CNA_score, na.rm = TRUE))
+  
+  # Comparer chaque bras chromosomique à toutes les autres cytobandes
+  p_values <- sapply(unique(df_patient$Bras_chromosomique), function(bras) {
+    
+    scores_bras <- unique(df_patient$median_CNA_score[df_patient$Bras_chromosomique == bras])
+    scores_autres <- unique(df_patient$median_CNA_score[df_patient$Bras_chromosomique != bras])
+    
+    print(paste("Bras : ", bras))
+    print(paste("Nombre de cytobandes dans le bras : ", length(scores_bras)))
+    print(paste("Nombre de cytobandes dans le tous les autres bras : ", length(scores_autres)))
+
+    # Vérification du nombre d'observations
+    if (length(scores_bras) < 2 | length(scores_autres) < 2) {
+      return(NA)  # Retourne NA si un groupe a moins de 2 valeurs
+    }
+    
+    # Test de normalité sur toutes les médianes
+    if (shapiro.test(unique(df_patient$median_CNA_score))$p.value > 0.05) { # Si ma distribution est normale...
+      test_result <- t.test(scores_bras, scores_autres) # ...On fait un t.test...
+    } else { # ...Sinon...
+      test_result <- wilcox.test(scores_bras, scores_autres) # ...On fait un test de Wilcoxon
+    }
+    
+    return(test_result$p.value)
+  })
+  
+  # Correction de la liste de pval obtenue via Benjamini-Hochberg (en fonction du nombre de test effectués)
+  p_values_adj <- p.adjust(p_values, method = "BH")
+  
+  # Stocker les résultats dans une dataframe
+  results_list[[patient]] <- data.frame(
+    Patient = patient,
+    Bras_chromosomique = names(p_values),
+    p_value = p_values,
+    p_value_adj = p_values_adj
+  )
+  
+  print(paste0("✅  Test statistique pour ", patient, " terminé !"))
+
+}
+```
+
+Le probleme c'est que j'ai trop peu de cytobandes majeures sur certaines bras chromosomiques donc peut etre essayer de faire les tests avec les cytobandes mineures (il faut que j'ai plus de 3 samples dans mes populations que je copare pour faire un test t)
+
+```{r}
+# Représenter les Loc avec une p_value_adj < 0.05 pour chaque patient
+for (patient in unique(my_df$Patient)) {
+  
+  # Sous-ensemble des résultats du patient
+  df_results <- results_list[[patient]]
+  
+  # Sélectionner les Loc avec une p_value_adj < 0.05
+  df_results_filtered <- df_results %>% filter(p_value_adj < 0.05)
+  
+  # Créer un plot
+  output <- ggplot(df_results_filtered, aes(x = Bras_chromosomique, y = -log10(p_value_adj))) +
+    geom_bar(stat = "identity", fill = "blue") +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") +
+    ggtitle(paste("Bras chromosomiques significatifs pour ", patient)) +
+    xlab("Bras chromosomiques") +
+    ylab("-log10(p-value)") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 90, hjust = 1, size = 8),
+      axis.text.y = element_text(size = 8),
+      axis.title = element_text(size = 10),
+      plot.title = element_text(hjust = 0.5)
+    )
+  
+  print(output)
+  
+  # # Sauvegarder le plot
+  # pdf(file = paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/Bras_chromosomiques_significatifs_", patient, ".pdf"), width = 10, height = 10)
+  # print(output)
+  # dev.off()
+  
+  print(paste0("✅ HistoPlot pour ", patient, " terminé !"))
+  
+  
+  
+  
+  # Faire le correlation plot avec les bras chromosomiques significatifs en rouge et les autres en noir
+  # 
+}
+```
+
+
+
+```{r}
+i = 1
+corr_value_list <- list()
+comparaison_tissus_cnv <- list(
+  "MpBC1" = c("Epithelial tumor", "Mesenchymal tumor"),
+  "MpBC2" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC3" = c("Squamous tumor", "Spindle cell tumor"),
+  "MpBC4" = c("Osteosarcomatoid tumor", "Spindle cell tumor"),
+  "MpBC5" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC6" = c("Normal mesenchyme", "Spindle cell tumor"),
+  "MpBC7" = c("Normal epithelium", "Spindle cell tumor"),
+  "MpBC8" = c("Squamous tumor", "Mesenchymal tumor"),
+  "MpBC9" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC10" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC11" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC13" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC14" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC15" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC16" = c("Epithelial tumor", "Chondroid tumor")
+)
+
+
+for (sample_name in samples_names) {
+  
+
+  print(paste0("🔍  Comparaison des tissus pour ", sample_name))
+  
+  df_MpBCX_annot <- df_list[[i]][c(which(df_list[[i]]$Annotations_new == comparaison_tissus_cnv[[sample_name]][1] | 
+                                        df_list[[i]]$Annotations_new == comparaison_tissus_cnv[[sample_name]][2])),]
+  
+  # On reorganise les chrom dans le bon ordre
+  df_MpBCX_annot$chromosomes <- factor(df_MpBCX_annot$chromosomes, 
+                                      levels = mixedsort(unique(df_MpBCX_annot$chromosomes)))
+  
+  df_MpBCX_annot_new <- df_MpBCX_annot %>%
+    group_by(chromosomes, cnv_cyt, Annotations_new) %>%
+    summarise(median_CNA_score = median(CNA_score, na.rm = TRUE), .groups = "drop")
+  
+  
+############################# Correlation plot #############################
+
+  print(paste0("Création du CorrPlot pour ", sample_name))
+  # Corrélation Plot
+  # Fusionner les données en utilisant les cytobandes communes
+  first_tissu_data <- df_MpBCX_annot_new[df_MpBCX_annot_new$Annotations_new == comparaison_tissus_cnv[[sample_name]][1], c("chromosomes", "cnv_cyt", "median_CNA_score")]
+  second_tissu_data <- df_MpBCX_annot_new[df_MpBCX_annot_new$Annotations_new == comparaison_tissus_cnv[[sample_name]][2], c("chromosomes", "cnv_cyt", "median_CNA_score")]
+
+  first_tissu_subset <- first_tissu_data
+  second_tissu_subset <- second_tissu_data
+
+  merged_data <- merge(first_tissu_subset, second_tissu_subset,
+                       by = c("chromosomes", "cnv_cyt"),
+                       suffixes = c("_first_tissue", "_second_tissue")) %>% 
+    mutate(Loc = paste0(chromosomes, cnv_cyt),
+           Bras_chromosomique = paste0(chromosomes, substr(cnv_cyt, 1, 1))) %>% 
+    left_join(results_list[[sample_name]], by = "Bras_chromosomique")
+
+  correlation_score <- cor(x = merged_data$median_CNA_score_first_tissue,
+                           y = merged_data$median_CNA_score_second_tissue,
+                           method = "pearson")
+  
+  corr_value_list[[sample_name]] <- correlation_score
+  print("Correlation score stored")
+
+  # Variables pour les axes
+  x <- merged_data$median_CNA_score_first_tissue
+  y <- merged_data$median_CNA_score_second_tissue
+
+
+  # Définir le chemin du dossier spécifique au sample_name
+  output_dir <- paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/", sample_name, "/")
+  
+  # Vérifier si le dossier existe, sinon le créer
+  if (!dir.exists(output_dir)) {
+      dir.create(output_dir, recursive = TRUE)
+  }
+    
+for (bras in (results_list[[sample_name]]$Bras_chromosomique[results_list[[sample_name]]$p_value_adj < 0.05])) {
+  
+
+  
+# Vérifier que x et y ne sont pas vides ou entièrement NA
+if (length(x) > 0 && length(y) > 0 && any(!is.na(x)) && any(!is.na(y))) {
+    
+
+    
+    # Générer le chemin complet du fichier PDF
+    pdf_path <- paste0(output_dir, "bis_CorrPlot_", sample_name, "_", bras, ".pdf")
+    
+    # Ouvrir le fichier PDF
+    pdf(file = pdf_path, width = 10, height = 10)
+
+    
+    
+    # Déterminer les limites de l'axe en évitant les valeurs infinies
+    x_lim <- range(x, na.rm = TRUE)
+    y_lim <- range(y, na.rm = TRUE)
+
+    if (all(is.finite(x_lim)) && all(is.finite(y_lim))) {
+
+        
+        point_colors <- ifelse(merged_data$Bras_chromosomique == bras, "red", "black")
+        
+        # Générer le plot avec couleurs par chromosome
+        plot(x, y, 
+             xlab = paste0("CNA Score - ", comparaison_tissus_cnv[[sample_name]][1]), 
+             ylab = paste0("CNA Score - ", comparaison_tissus_cnv[[sample_name]][2]), 
+             main = paste0(sample_name, " - Correlation Plot - ", comparaison_tissus_cnv[[sample_name]][1], " vs ", comparaison_tissus_cnv[[sample_name]][2], 
+                           " \nPearson's Correlation: ", round(correlation_score, 2),
+                           " \nBras chromosomique: ", bras, " - FDR: ",
+                           results_list[[sample_name]]$p_value_adj[results_list[[sample_name]]$Bras_chromosomique == bras]),
+             
+             col = point_colors,  # Coloration selon le chromosome
+             pch = 19, 
+             cex = 1.5,  
+             xlim = x_lim + c(-0.1, 0.1), 
+             ylim = y_lim + c(-0.1, 0.1)
+        )
+
+        abline(a = 0, b = 1, col = "black", lwd = 2, lty = 1)
+        abline(lm(y ~ x), col = "blue", lwd = 2, lty = 2)
+
+        legend("topleft", 
+               # x = 0.4269, y = -0.379,
+         legend = c("y = x", "Régression linéaire"), 
+         col = c("black", "blue"), 
+         lty = c(1, 2), 
+         lwd = 2, 
+         title = "Droites")
+
+        
+        # Ajouter une légende pour les chromosomes
+        legend("bottomright", 
+               legend = c("Autres cytobandes", "Cytobandes du bras significatif"), 
+               col = c("black", "red"), 
+               pch = 19, 
+               title = "Cytobandes")
+
+    } else {
+        warning("⚠️ Impossible de tracer le plot : x ou y contient uniquement des valeurs infinies ou NA.")
+    }
+
+    # Fermer le fichier PDF
+    dev.off()
+
+    print(paste0("✅ Correlation plot pour ", sample_name, " terminé et sauvegardé !"))
+
+} else {
+    warning("⚠️ Pas assez de données valides pour générer le plot.")
+}
+  
+}
+
+  
+  # On incrémente l'index pour les échantillons suivants
+  i = i + 1
+  
+}
+```
+
+
+# HeatMap Barplot
+
+```{r}
+df_barplot <- my_df %>% 
+  group_by(Chromosome, Bras_chromosomique) %>%
+  summarise(median_CNA_score = median(CNA_score, na.rm = TRUE), .groups = "drop") %>% 
+  mutate(Bras_chromosomique = factor(Bras_chromosomique, levels = mixedsort(unique(Bras_chromosomique))),
+         Chromosome = factor(Chromosome, levels = mixedsort(unique(Chromosome)))) %>% 
+  arrange(Bras_chromosomique)
+
+barplot <- ggplot(df_barplot, aes(x = Bras_chromosomique, y = median_CNA_score, fill = median_CNA_score > 0)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("TRUE" = "red", "FALSE" = "blue")) +
+  facet_wrap(~ Chromosome, scales = "free_x") +  # Un graphique par chromosome
+  labs(title = "Barplot des scores CNA par cytobande et chromosome",
+       x = "Cytobandes",
+       y = "Score CNA") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        axis.title = element_text(size = 10),
+        plot.title = element_text(hjust = 0.5),
+        strip.text = element_text(size = 10))  # Taille du texte des facettes
+
+barplot
+
+```
+
+```{r}
+df_barplot <- my_df %>% 
+  group_by(Chromosome, Loc) %>%  # Utilisation de Loc pour les cytobandes
+  summarise(median_CNA_score = median(CNA_score, na.rm = TRUE), .groups = "drop") %>% 
+  mutate(Loc = factor(Loc, levels = mixedsort(unique(Loc))),  # Trier les cytobandes correctement
+         Chromosome = factor(Chromosome, levels = mixedsort(unique(Chromosome))),
+         Evenement = ifelse(median_CNA_score > 0, "Amplification", "Délétion"),
+         Bras = ifelse(grepl("p", Loc), "p", "q")) %>%  # Trier les chromosomes dans l'ordre naturel
+  arrange(Chromosome, Loc)
+
+# Création du barplot
+barplot <- ggplot(df_barplot, aes(x = Loc, y = median_CNA_score, fill = Evenement)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Amplification" = "red", "Délétion" = "blue")) +
+  facet_wrap(~ Chromosome, scales = "free_x") +  # Un graphique par chromosome
+  labs(title = "Barplot des scores CNA par cytobande et chromosome",
+       x = "Cytobandes",
+       y = "Score CNA") +
+  theme_bw() +
+  theme(axis.text.x = element_text(size = 5, angle = 90, vjust = 0.5, hjust = 1),  # Couleur des étiquettes
+        axis.text.y = element_text(size = 8),
+        axis.title = element_text(size = 10),
+        plot.title = element_text(hjust = 0.5),
+        strip.text = element_text(size = 10))  # Taille du texte des facettes
+
+barplot
+
+
+# Je voulais coloré les étiquettes des cytobandes an fonctions des bras p ou q mais ça me fait des choses bisarre.
+# Ou bien les mettre avec des angles différent (par exemple 45° et -45°) mais ne marche pas
+```
+
+```{r}
+for (sample_name in samples_names) {
+
+  # Chemin du dossier
+  output_dir <- paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/Barplot/Barplot", sample_name, "/")
+  
+  # Vérifier si le dossier existe, sinon le créer
+  if (!dir.exists(output_dir)) {
+      dir.create(output_dir, recursive = TRUE) }
+    
+  # Ouvrir un fichier PDF
+  pdf(file = paste0(output_dir, "Barplot_", sample_name, ".pdf"), 
+      width = 15, height = 10)  
+  
+  df_barplot <- my_df %>% 
+    filter(Patient == sample_name) %>%
+    group_by(Chromosome, Loc) %>%  # Utilisation de Loc pour les cytobandes
+    summarise(median_CNA_score = median(CNA_score, na.rm = TRUE), .groups = "drop") %>% 
+    mutate(Loc = factor(Loc, levels = mixedsort(unique(Loc))),  # Trier les cytobandes
+           Chromosome = factor(Chromosome, levels = mixedsort(unique(Chromosome))),
+           Evenement = ifelse(median_CNA_score > 0, "Amplification", "Délétion"),
+           Bras = ifelse(grepl("p", Loc), "p", "q")) %>%  # Trier les chromosomes dans l'ordre
+    arrange(Chromosome, Loc)
+  
+  # Barplot
+  barplot <- ggplot(df_barplot, aes(x = Loc, y = median_CNA_score, fill = Evenement)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = c("Amplification" = "red", "Délétion" = "blue")) +
+    facet_wrap(~ Chromosome, scales = "free_x") +  # Un graphique par chromosome
+    labs(title = "Barplot des scores CNA par cytobande et chromosome",
+         x = "Cytobandes",
+         y = "Score CNA") +
+    theme_bw() +
+    theme(axis.text.x = element_text(size = 3, angle = 90, vjust = 0.5, hjust = 1),
+          axis.text.y = element_text(size = 8),
+          axis.title = element_text(size = 10),
+          plot.title = element_text(hjust = 0.5),
+          strip.text = element_text(size = 10))  # Taille du texte des facettes
+  
+  # Sauvegarder le plot
+  ggsave(filename = paste0(output_dir, "Barplot_", sample_name, ".png"), 
+         plot = barplot,
+         width = 15, height = 10)
+  
+  # Fermer le fichier PDF
+  dev.off()
+
+  print(paste0("✅ Barplot pour ", sample_name, " terminé et sauvegardé !"))
+
+
+}
+```
+
+
+# On essaye en faisant la différence entre les compartiments (sans la normalisation)
+
+```{r}
+
+comparaison_tissus_cnv <- list(
+  "MpBC1" = c("Epithelial tumor", "Mesenchymal tumor"),
+  "MpBC2" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC3" = c("Squamous tumor", "Spindle cell tumor"),
+  "MpBC4" = c("Osteosarcomatoid tumor", "Spindle cell tumor"),
+  "MpBC5" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC6" = c("Normal mesenchyme", "Spindle cell tumor"),
+  "MpBC7" = c("Normal epithelium", "Spindle cell tumor"),
+  "MpBC8" = c("Squamous tumor", "Mesenchymal tumor"),
+  "MpBC9" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC10" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC11" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC13" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC14" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC15" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC16" = c("Epithelial tumor", "Chondroid tumor")
+)
+
+
+for (sample_name in samples_names) {
+  
+  if (sample_name == "MpBC6" | sample_name == "MpBC7") {
+    next  # Passer à l'itération suivante si l'échantillon est MpBC6 ou MpBC7 (car échantillons purs)
+  }
+  
+  print(paste0("🔍  Comparaison des tissus pour ", sample_name))
+  
+  
+  # Chemin du dossier
+  output_dir <- paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/Barplot/Barplot", sample_name, "/")
+  
+  # Vérifier si le dossier existe, sinon le créer
+  if (!dir.exists(output_dir)) {
+      dir.create(output_dir, recursive = TRUE) }
+    
+  # Ouvrir un fichier PDF
+  pdf(file = paste0(output_dir, "Barplot_", sample_name, ".pdf"), 
+      width = 15, height = 10)  
+  
+  df_barplot <- my_df %>% 
+    filter(Patient == sample_name, Annotations_new != "Blood", Annotations_new != "Normal mesenchyme", Annotations_new != "Normal epithelium") %>%
+    group_by(Chromosome, Loc, Annotations_new) %>%  # Utilisation de Loc pour les cytobandes
+    summarise(median_CNA_score = median(CNA_score, na.rm = TRUE), .groups = "drop") %>% 
+    mutate(Loc = factor(Loc, levels = mixedsort(unique(Loc))),  # Trier les cytobandes
+           Chromosome = factor(Chromosome, levels = mixedsort(unique(Chromosome))),
+           Evenement = ifelse(median_CNA_score > 0, "Amplification", "Délétion"),
+           Bras = ifelse(grepl("p", Loc), "p", "q")) %>%  # Trier les chromosomes dans l'ordre
+    arrange(Chromosome, Loc, Annotations_new)
+  
+  # Filtrer les types de tissus à comparer
+  tissu1 <- comparaison_tissus_cnv[[sample_name]][1]
+  tissu2 <- comparaison_tissus_cnv[[sample_name]][2]
+  
+  df_tissu1 <- df_barplot %>% 
+    filter(Annotations_new == tissu1) %>%
+    rename(median_CNA_tissu1 = median_CNA_score) %>%
+    select(Chromosome, Loc, median_CNA_tissu1)
+  
+  df_tissu2 <- df_barplot %>% 
+    filter(Annotations_new == tissu2) %>%
+    rename(median_CNA_tissu2 = median_CNA_score) %>%
+    select(Chromosome, Loc, median_CNA_tissu2)
+  
+  # Joindre les deux datasets sur Chromosome et Loc
+  diff_df <- left_join(df_tissu1, df_tissu2, by = c("Chromosome", "Loc")) %>%
+    mutate(CNA_diff = median_CNA_tissu1 - median_CNA_tissu2,
+           Bras = ifelse(grepl("p", Loc), "p", "q"))
+    
+  
+  # Barplot
+  barplot <- ggplot(diff_df, aes(x = Loc, y = abs(CNA_diff), fill = Bras)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = c("p" = "#33a02c", "q" = "#ff7f00")) +
+    facet_wrap(~ Chromosome, scales = "free_x") +  # Un graphique par chromosome
+    labs(title = "Barplot des différences absolues de scores CNA entre compartiment, par cytobande et chromosome",
+         x = "Cytobandes",
+         y = "Différences absolues des scores CNA entre les 2 compartiments") +
+    theme_bw() +
+    theme(axis.text.x = element_text(size = 3, angle = 90, vjust = 0.5, hjust = 1),
+          axis.text.y = element_text(size = 8),
+          axis.title = element_text(size = 10),
+          plot.title = element_text(hjust = 0.5),
+          strip.text = element_text(size = 10))  # Taille du texte des facettes
+  
+  barplot
+  
+  # Sauvegarder le plot
+  ggsave(filename = paste0(output_dir, "Barplot_diff_", sample_name, ".png"), 
+         plot = barplot,
+         width = 15, height = 10)
+  
+  # Fermer le fichier PDF
+  dev.off()
+
+  print(paste0("✅ Barplot  diff pour ", sample_name, " terminé et sauvegardé !"))
+
+
+}
+```
+
+
+# On essaye maintenant avec la normalisation et en faisant la différence entre les compartiments (sans la normalisation)
+```{r}
+comparaison_tissus_cnv <- list(
+  "MpBC1" = c("Epithelial tumor", "Mesenchymal tumor"),
+  "MpBC2" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC3" = c("Squamous tumor", "Spindle cell tumor"),
+  "MpBC4" = c("Osteosarcomatoid tumor", "Spindle cell tumor"),
+  "MpBC5" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC6" = c("Normal mesenchyme", "Spindle cell tumor"),
+  "MpBC7" = c("Normal epithelium", "Spindle cell tumor"),
+  "MpBC8" = c("Squamous tumor", "Mesenchymal tumor"),
+  "MpBC9" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC10" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC11" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC13" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC14" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC15" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC16" = c("Epithelial tumor", "Chondroid tumor")
+)
+
+CNA_score_normalized_list <- list(
+  "MpBC1" = c(),
+  "MpBC2" = c(),
+  "MpBC3" = c(),
+  "MpBC4" = c(),
+  "MpBC5" = c(),
+  "MpBC6" = c(),
+  "MpBC7" = c(),
+  "MpBC8" = c(),
+  "MpBC9" = c(),
+  "MpBC10" = c(),
+  "MpBC11" = c(),
+  "MpBC13" = c(),
+  "MpBC14" = c(),
+  "MpBC15" = c(),
+  "MpBC16" = c()
+)
+
+
+my_df <- my_df %>% 
+  mutate(CNA_score_diff_normalized = NA)  # Initialiser la colonne CNA_score_normalized
+
+df_diff_norm_all_patients <- data.frame()  # Initialiser le dataframe pour stocker les résultats de tous les patients
+
+for (sample_name in samples_names) {
+  
+  if (sample_name == "MpBC6" | sample_name == "MpBC7") {
+    next  # Passer à l'itération suivante si l'échantillon est MpBC6 ou MpBC7 (car échantillons purs)
+  }
+  
+  print(paste0("🔍  Comparaison des tissus pour ", sample_name))
+  
+  # Chemin du dossier
+  output_dir <- paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/Barplot/Barplot", sample_name, "/")
+  
+  # Vérifier si le dossier existe, sinon le créer
+  if (!dir.exists(output_dir)) {
+      dir.create(output_dir, recursive = TRUE) }
+    
+  # # Ouvrir un fichier PDF
+  # pdf(file = paste0(output_dir, "Barplot_", sample_name, ".pdf"), 
+  #     width = 15, height = 10)
+  
+  df_barplot <- my_df %>% 
+    filter(Patient == sample_name, Annotations_new != "Blood", Annotations_new != "Normal mesenchyme", Annotations_new != "Normal epithelium") %>%
+    group_by(Chromosome, Loc, Annotations_new) %>%  # Utilisation de Loc pour les cytobandes, On regroupe les spots par chromosome et cytobande et annotation
+    summarise(median_CNA_score = median(CNA_score, na.rm = TRUE), .groups = "drop") %>% # ON fait la mediane des scores CNA
+    mutate(Loc = factor(Loc, levels = mixedsort(unique(Loc))),  # Trier les cytobandes
+           Chromosome = factor(Chromosome, levels = mixedsort(unique(Chromosome))), # Trier les chromosomes
+           Evenement = ifelse(median_CNA_score > 0, "Amplification", "Délétion"), # CRéer la col Evenement
+           Bras = ifelse(grepl("p", Loc), "p", "q")) %>%  # CRéer la colonne bras
+    arrange(Chromosome, Loc, Annotations_new)
+  
+  # Filtrer les types de tissus à comparer
+  tissu1 <- comparaison_tissus_cnv[[sample_name]][1]
+  tissu2 <- comparaison_tissus_cnv[[sample_name]][2]
+  
+  df_tissu1 <- df_barplot %>% 
+    filter(Annotations_new == tissu1) %>%
+    rename(median_CNA_tissu1 = median_CNA_score) %>%
+    select(Chromosome, Loc, median_CNA_tissu1)
+  
+  df_tissu2 <- df_barplot %>% 
+    filter(Annotations_new == tissu2) %>%
+    rename(median_CNA_tissu2 = median_CNA_score) %>%
+    select(Chromosome, Loc, median_CNA_tissu2)
+  
+  # Joindre les deux datasets sur Chromosome et Loc
+  diff_df <- left_join(df_tissu1, df_tissu2, by = c("Chromosome", "Loc")) %>%
+    mutate(CNA_diff_abs = abs(median_CNA_tissu1 - median_CNA_tissu2), # C'est meix de de faire la difference absolue (distance de Manhattan) car moins sensible au ouliers que la distance euclidienne (élévation au carré)
+           Bras = ifelse(grepl("p", Loc), "p", "q"),
+           Patient = sample_name)
+  
+  total_area <- sum(diff_df$CNA_diff_abs, na.rm = TRUE) # Somme totale des différences absolues (intensité des différences pour ce patient)
+  
+  diff_df <- diff_df %>%
+    mutate(CNA_diff_pct_norm = (CNA_diff_abs * 100) / total_area)  # Normalisation par cytobande de chaque écart de score CNA par la somme totale => Et on met sous forme de pourcentage
+  
+  CNA_score_normalized_list[[sample_name]] <- diff_df$CNA_diff_pct_norm 
+  
+  # Ajouter les scores normalisés au dataframe my_df pour le patient et la loc correspondante
+  df_diff_norm_all_patients <- rbind(df_diff_norm_all_patients, diff_df)  # Ajouter les résultats de ce patient au dataframe global
+  # my_df$CNA_score_diff_normalized[my_df$Patient == sample_name & my_df$Loc %in% diff_df$Loc] <- diff_df$CNA_diff_pct_norm
+  # left_join(my_df, diff_df, by = c("Patient", "Loc"))
+
+  # # Barplot
+  # barplot <- ggplot(diff_df, aes(x = Loc, y = CNA_diff_pct_norm, fill = Bras)) +
+  #   geom_bar(stat = "identity") +
+  #   scale_fill_manual(values = c("p" = "#33a02c", "q" = "#ff7f00")) +
+  #   facet_wrap(~ Chromosome, scales = "free_x") +  # Un graphique par chromosome
+  #   labs(title = "Barplot des différences absolues de scores CNA entre compartiment NORMLALISÉS, par cytobande et chromosome",
+  #        x = "Cytobandes",
+  #        y = "Différences absolues de scores CNA entre compartiment NORMLALISÉS") +
+  #   theme_bw() +
+  #   theme(axis.text.x = element_text(size = 3, angle = 90, vjust = 0.5, hjust = 1),
+  #         axis.text.y = element_text(size = 8),
+  #         axis.title = element_text(size = 10),
+  #         plot.title = element_text(hjust = 0.5),
+  #         strip.text = element_text(size = 10))  # Taille du texte des facettes
+  # 
+  # # barplot
+  # 
+  # # Sauvegarder le plot
+  # ggsave(filename = paste0(output_dir, "Barplot_diff_norm_", sample_name, ".png"),
+  #        plot = barplot,
+  #        width = 15, height = 10)
+
+  # Fermer le fichier PDF
+  # dev.off()
+
+  print(paste0("✅ Barplot diff et normalisé pour ", sample_name, " terminé et sauvegardé !"))
+
+}
+
+
+
+
+
+
+
+```
+
+A tester : jeudi
+
+J'ai mes "scores" normalisé pour chaque patient dans la liste CNA_score_normalized_list.
+Je peux essayé de faire les barplot pour tout les patient réunis (en prenant/regroupant la mediane des patients pour chaque LOc), faire le barplot, le corrplot et le test t
+
+```{r}
+# On fait un nouveau df pour regrouper les scores normalisés de chaque patient
+
+df_diff_norm_all_patients <- df_diff_norm_all_patients %>% 
+  mutate(Bras_chromosomique = paste0(Chromosome, Bras))
+```
+
+```{r}
+# Liste pour stocker les résultats par patient
+results_list <- list()
+
+
+
+# Boucle sur chaque patient
+for (patient in unique(df_diff_norm_all_patients$Patient)) {
+  
+    # Sous-ensemble des données du patient
+  df_patient <- df_diff_norm_all_patients %>% filter(Patient == patient)
+    # group_by(Loc) %>%
+    # # summarise(median_CNA_score = median(CNA_score, na.rm = TRUE), .groups = "drop")
+    # mutate(median_CNA_score = median(CNA_score, na.rm = TRUE))
+  
+  
+  # Comparer chaque bras chromosomique à toutes les autres cytobandes
+  p_values <- sapply(unique(df_patient$Bras_chromosomique), function(bras) {
+    
+    scores_bras <- unique(df_patient$CNA_diff_pct_norm[df_patient$Bras_chromosomique == bras])
+    scores_autres <- unique(df_patient$CNA_diff_pct_norm[df_patient$Bras_chromosomique != bras])
+    
+    print(paste("Bras : ", bras))
+    print(paste("Nombre de cytobandes dans le bras : ", length(scores_bras)))
+    print(paste("Nombre de cytobandes dans le tous les autres bras : ", length(scores_autres)))
+
+    # Vérification du nombre d'observations
+    if (length(scores_bras) < 2 | length(scores_autres) < 2) {
+      return(NA)  # Retourne NA si un groupe a moins de 2 valeurs
+    }
+    
+    # Test de normalité sur toutes les médianes
+    if (length(scores_bras) >= 3 && length(scores_bras) <= 5000 &&
+        length(scores_autres) >= 3 && length(scores_autres) <= 5000) {
+      
+      if (shapiro.test(scores_bras)$p.value > 0.05 &&
+          shapiro.test(scores_autres)$p.value > 0.05) {
+        test_result <- t.test(scores_bras, scores_autres)
+      } else {
+        test_result <- wilcox.test(scores_bras, scores_autres)
+      }
+    
+    } else {
+      # Si trop petit ou trop grand pour shapiro, on fait un test non paramétrique
+      test_result <- wilcox.test(scores_bras, scores_autres)
+    }
+
+    
+    return(test_result$p.value)
+  })
+  
+  
+  
+  
+  # Correction de la liste de pval obtenue via Benjamini-Hochberg (en fonction du nombre de test effectués)
+  p_values_adj <- p.adjust(p_values, method = "BH")
+  
+  # Stocker les résultats dans une dataframe
+  results_list[[patient]] <- data.frame(
+    Patient = patient,
+    Bras_chromosomique = names(p_values),
+    p_value = p_values,
+    p_value_adj = p_values_adj
+  )
+  
+  print(paste0("✅  Test statistique pour ", patient, " terminé !"))
+
+}
+```
+
+```{r}
+# Liste pour stocker les résultats par patient
+results_list2 <- list()
+
+
+  # Comparer chaque bras chromosomique à toutes les autres cytobandes
+  p_values <- sapply(unique(df_diff_norm_all_patients$Bras_chromosomique), function(bras) {
+    
+    scores_bras <- unique(df_diff_norm_all_patients$CNA_diff_pct_norm[df_diff_norm_all_patients$Bras_chromosomique == bras])
+    scores_autres <- unique(df_diff_norm_all_patients$CNA_diff_pct_norm[df_diff_norm_all_patients$Bras_chromosomique != bras])
+    
+    print(paste("Bras : ", bras))
+    print(paste("Nombre de cytobandes dans le bras : ", length(scores_bras)))
+    print(paste("Nombre de cytobandes dans le tous les autres bras : ", length(scores_autres)))
+
+    # Vérification du nombre d'observations
+    if (length(scores_bras) < 2 | length(scores_autres) < 2) {
+      return(NA)  # Retourne NA si un groupe a moins de 2 valeurs
+    }
+    
+    # Test de normalité sur toutes les médianes
+    if (length(scores_bras) >= 3 && length(scores_bras) <= 5000 &&
+        length(scores_autres) >= 3 && length(scores_autres) <= 5000) {
+      
+      if (shapiro.test(scores_bras)$p.value > 0.05 &&
+          shapiro.test(scores_autres)$p.value > 0.05) {
+        test_result <- t.test(scores_bras, scores_autres)
+      } else {
+        test_result <- wilcox.test(scores_bras, scores_autres)
+      }
+    
+    } else {
+      # Si trop petit ou trop grand pour shapiro, on fait un test non paramétrique
+      test_result <- wilcox.test(scores_bras, scores_autres)
+    }
+
+    
+    return(test_result$p.value)
+  })
+  
+  # Correction de la liste de pval obtenue via Benjamini-Hochberg (en fonction du nombre de test effectués)
+  p_values_adj <- p.adjust(p_values, method = "BH")
+  
+  # Stocker les résultats dans une dataframe
+  results_list2 <- data.frame(
+    Patient = "All_patients",
+    Bras_chromosomique = names(p_values),
+    p_value = p_values,
+    p_value_adj = p_values_adj
+  )
+  
+  print(paste0("✅  Test statistique terminé !"))
+```
+
+```{r}
+# Représenter les Loc avec une p_value_adj < 0.05 pour chaque patient
+for (patient in unique(df_diff_norm_all_patients$Patient)) {
+  
+  # Sous-ensemble des résultats du patient
+  df_results <- results_list[[patient]]
+  
+  # Sélectionner les Loc avec une p_value_adj < 0.05
+  df_results_filtered <- df_results %>% filter(p_value_adj < 0.05)
+  
+  output <- ggplot(df_results_filtered, aes(x = Bras_chromosomique, y = -log10(p_value_adj))) +
+    geom_bar(stat = "identity", fill = "blue") +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") +
+    ggtitle(paste("Bras chromosomiques significatifs pour ", patient)) +
+    xlab("Bras chromosomiques") +
+    ylab("-log10(p-value_adj)") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 90, hjust = 1, size = 8),
+      axis.text.y = element_text(size = 8),
+      axis.title = element_text(size = 10),
+      plot.title = element_text(hjust = 0.5)
+    )
+  
+  print(output)
+  
+  # # Sauvegarder le plot
+  # pdf(file = paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/Bras_chromosomiques_significatifs_", patient, ".pdf"), width = 10, height = 10)
+  # print(output)
+  # dev.off()
+  
+  print(paste0("✅ HistoPlot pour ", patient, " terminé !"))
+  
+}
+  
+```
+
+```{r}
+# Sous-ensemble des résultats du patient
+  df_results <- results_list2
+  
+  # Sélectionner les Loc avec une p_value_adj < 0.05
+  df_results_filtered <- df_results %>% filter(p_value_adj < 0.05)
+  
+  output <- ggplot(df_results_filtered, aes(x = Bras_chromosomique, y = -log10(p_value_adj))) +
+    geom_bar(stat = "identity", fill = "blue") +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") +
+    ggtitle("Bras chromosomiques significatifs pour tous les patients") +
+    xlab("Bras chromosomiques") +
+    ylab("-log10(p-value_adj)") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 90, hjust = 1, size = 8),
+      axis.text.y = element_text(size = 8),
+      axis.title = element_text(size = 10),
+      plot.title = element_text(hjust = 0.5)
+    )
+  
+  print(output)
+```
+
+
+
+
+
+
+
+
+```{r}
+my_df <- readRDS("/mnt/datadisk/Jordan/Data/CNA/my_df.rds")
+
+
+####################### Tissus à comparer pour chaque patient #######################
+
+
+# Ordre des comparaisons
+comparaison_tissus_cnv <- list(
+  "MpBC1" = c("Epithelial tumor", "Mesenchymal tumor"),
+  "MpBC2" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC3" = c("Squamous tumor", "Spindle cell tumor"),
+  "MpBC4" = c("Osteosarcomatoid tumor", "Spindle cell tumor"),
+  "MpBC5" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC6" = c("Normal mesenchyme", "Spindle cell tumor"),
+  "MpBC7" = c("Normal epithelium", "Spindle cell tumor"),
+  "MpBC8" = c("Squamous tumor", "Mesenchymal tumor"),
+  "MpBC9" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC10" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC11" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC13" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC14" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC15" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC16" = c("Epithelial tumor", "Chondroid tumor")
+)
+
+
+  ##########################################################################
+  ####################### Boucle pour chaque patient #######################
+  ##########################################################################
+
+for (sample_name in samples_names) {
+  
+  if (sample_name == "MpBC6" | sample_name == "MpBC7") {
+    next  # Passer à l'itération suivante si l'échantillon est MpBC6 ou MpBC7 (car échantillons purs)
+  }
+  
+  print(paste0("🔍  Comparaison des tissus pour ", sample_name))
+  
+  
+  # Chemin du dossier
+  output_dir <- paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/Barplot_norm_ok/Barplot", sample_name, "/")
+  
+  # Vérifier si le dossier existe, sinon le créer
+  if (!dir.exists(output_dir)) {
+      dir.create(output_dir, recursive = TRUE) }
+    
+ 
+  
+  
+  
+  
+  ####################### Un dataframe filtré par patient #######################
+
+  
+  # A partir de mon gros dataframe, je filtre pour ne garder que les données du patient et des tissus à comparer et je fait la mediane des scores CNA de chaque spot pour chaque cytobandes
+  df_patient <- my_df %>% 
+    filter(Patient == sample_name,
+           Annotations_new %in% comparaison_tissus_cnv[[sample_name]][1:2]) %>% 
+    group_by(Loc, Patient, Annotations_new, Chromosome, Bras_chromosomique, Cytobande) %>%
+    summarise(median_CNA_score = median(CNA_score, na.rm = TRUE), .groups = "drop")
+  
+  
+  
+  
+  
+  
+  
+  
+  ####################### Normalisation des scores CNA #######################
+
+  
+  # <==== On normalise les scores des deletions et amplifications ====>
+  # On crée une nouvelle colonne pour stocker les scores normalisés pour plus tard
+  df_patient$median_CNA_score_norm <- df_patient$median_CNA_score
+  
+  ## Les délétions
+  minimum_median <- min(df_patient$median_CNA_score, na.rm = TRUE) # Valeur minimale ultime de mon patient
+  minimum_tissue <- unique(df_patient$Annotations_new[df_patient$median_CNA_score == minimum_median]) # Tissu correspondant à la valeur minimale
+  
+  # Les amplifications
+  maximum_median <- max(df_patient$median_CNA_score, na.rm = TRUE) # Valeur maximale ultime de mon patient
+  maximum_tissue <- unique(df_patient$Annotations_new[df_patient$median_CNA_score == maximum_median]) # Tissu correspondant à la valeur maximale
+  
+  
+  # df par tissu
+  df_tissue1 <- df_patient %>% 
+    filter(Annotations_new == comparaison_tissus_cnv[[sample_name]][1])
+  
+  df_tissue1_bras <- df_patient %>%
+    filter(Annotations_new == comparaison_tissus_cnv[[sample_name]][1]) %>%
+    group_by(Patient, Annotations_new, Chromosome, Bras_chromosomique) %>%
+    summarise(median_CNA_score_bras = median(median_CNA_score, na.rm = TRUE), .groups = "drop")
+  
+  df_tissue2 <- df_patient %>%
+    filter(Annotations_new == comparaison_tissus_cnv[[sample_name]][2])
+
+  df_tissue2_bras <- df_patient %>%
+    filter(Annotations_new == comparaison_tissus_cnv[[sample_name]][2]) %>%
+    group_by(Patient, Annotations_new, Chromosome, Bras_chromosomique) %>%
+    summarise(median_CNA_score_bras = median(median_CNA_score, na.rm = TRUE), .groups = "drop")
+  
+  
+  #########Normalisation jordan##########
+  min_tissue1 <- min(df_tissue1$median_CNA_score, na.rm = TRUE)
+  max_tissue1 <- max(df_tissue1$median_CNA_score, na.rm = TRUE)
+  min_tissue2 <- min(df_tissue2$median_CNA_score, na.rm = TRUE)
+  max_tissue2 <- max(df_tissue2$median_CNA_score, na.rm = TRUE)
+  
+  factor_min <- min_tissue1 / min_tissue2
+  factor_max <- max_tissue1 / max_tissue2
+  
+
+  
+  # Normalisation des déletions
+  if (minimum_tissue == comparaison_tissus_cnv[[sample_name]][1]) { # Si la valeur minimale est dans le tissu 1
+    for (cna_score in df_tissue2$median_CNA_score) { # POur chaque score CNA du tissu 2
+      if (cna_score < 0) { # Si le score CNA est négatif (délétion)
+        cna_score_norm <- cna_score * abs(factor_min) # On normalise les score de ce tissue 2 avec le minimum du tissu 1
+        # cna_score_norm <- cna_score * abs(minimum_median) #On normalise les score de ce tissue 2 avec le minimum du tissu1
+
+        # Stocker la valeur normalisée dans le dataframe dans une nouvelle colonne
+        df_patient$median_CNA_score_norm[df_patient$median_CNA_score == cna_score] <- cna_score_norm
+      }
+    }
+  } else { # Si la valeur minimale est dans le tissu 2
+    for (cna_score in df_tissue1$median_CNA_score) { # POur chaque score CNA du tissu 1
+      if (cna_score < 0) { # Si le score CNA est négatif (délétion)
+        cna_score_norm <- cna_score * abs(factor_min) # On normalise les score de ce tissue 1 avec le minimum du tissu 2
+        # cna_score_norm <- cna_score * abs(minimum_median) #On normalise les score de ce tissue 1 avec le minimum du tissu2
+        # Stocker la valeur normalisée dans le dataframe dans une nouvelle colonne
+        df_patient$median_CNA_score_norm[df_patient$median_CNA_score == cna_score] <- cna_score_norm
+      }
+    }
+  }
+  
+  # Normalisation des amplifications
+  if (maximum_tissue == comparaison_tissus_cnv[[sample_name]][1]) { # Si la valeur maximale est dans le tissu 1
+    for (cna_score in df_tissue2$median_CNA_score) { # POur chaque score CNA du tissu 2
+      if (cna_score > 0) { # Si le score CNA est positif (amplification)
+        cna_score_norm <- cna_score * abs(factor_max) # On normalise les score de ce tissue 2 avec le maximum du tissu 1
+        # cna_score_norm <- cna_score * abs(maximum_median) #On normalise les score de ce tissue 2 avec le minimum du tissu1
+        # Stocker la valeur normalisée dans le dataframe dans une nouvelle colonne
+        df_patient$median_CNA_score_norm[df_patient$median_CNA_score == cna_score] <- cna_score_norm
+      }
+    }
+  } else { # Si la valeur maximale est dans le tissu 2
+    for (cna_score in df_tissue1$median_CNA_score) { # POur chaque score CNA du tissu 1
+      if (cna_score > 0) { # Si le score CNA est positif (amplification)
+        cna_score_norm <- cna_score * abs(factor_max) # On normalise les score de ce tissue 1 avec le maximum du tissu 2
+        # cna_score_norm <- cna_score * abs(maximum_median) #On normalise les score de ce tissue 1 avec le minimum du tissu2
+        # Stocker la valeur normalisée dans le dataframe dans une nouvelle colonne
+        df_patient$median_CNA_score_norm[df_patient$median_CNA_score == cna_score] <- cna_score_norm
+      }
+    }
+  }
+
+  
+  
+  
+  
+  ####################### Différences des scores norm #######################
+  
+  
+  df_barplot <- df_patient %>% 
+    mutate(Loc = factor(Loc, levels = mixedsort(unique(Loc))),  # Trier les cytobandes correctement
+           Chromosome = factor(Chromosome, levels = mixedsort(unique(Chromosome))),
+           Evenement = ifelse(median_CNA_score > 0, "Amplification", "Délétion"),
+           Bras = ifelse(grepl("p", Loc), "p", "q")) %>%  
+    arrange(Patient, Annotations_new, Chromosome, Loc, Bras, Cytobande) # Trier par patient, annotation, chromosome, cytobande, bras et cytobande)
+  
+  
+  # Faire une nouvelle colonne qui pour chaque cytobande fait la différence entre les deux tissus (Annotations_new)
+  df_barplot2 <- df_barplot %>%
+    group_by(Loc, Patient, Chromosome, Bras_chromosomique, Cytobande) %>%
+    summarise(diff_median_CNA_score_norm = 
+                abs(
+                  median_CNA_score_norm[Annotations_new == comparaison_tissus_cnv[[sample_name]][1]] -
+                    median_CNA_score_norm[Annotations_new == comparaison_tissus_cnv[[sample_name]][2]]
+                  ), 
+              .groups = "drop") %>% 
+    mutate(Bras = ifelse(grepl("p", Loc), "p", "q"))  # CRéer la colonne bras)
+  
+  
+  
+  
+  ####################### Barplot avec les bras Loc chromosomiques #######################
+  
+  
+  # Création du barplot
+  barplot2 <- ggplot(df_barplot2, aes(x = Loc, y = diff_median_CNA_score_norm, fill = Bras)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = c("p" = "#33a02c", "q" = "#ff7f00")) +
+    facet_wrap(~ Chromosome, scales = "free_x") +  # Un graphique par chromosome
+    labs(title = "Barplot des scores CNA par cytobande et chromosome",
+         x = "Cytobandes",
+         y = "Score CNA") +
+    theme_bw() +
+    theme(axis.text.x = element_text(size = 5, angle = 90, vjust = 0.5, hjust = 1),  # Couleur des étiquettes
+          axis.text.y = element_text(size = 8),
+          axis.title = element_text(size = 10),
+          plot.title = element_text(hjust = 0.5),
+          strip.text = element_text(size = 10))  # Taille du texte des facettes
+  
+  barplot2
+  
+  
+  # Sauvegarder le plot
+  
+  # Ouvrir un fichier PDF
+  pdf(file = paste0(output_dir, "Barplot_Loc", sample_name, ".pdf"),
+      width = 15, height = 10)
+  
+  ggsave(filename = paste0(output_dir, "Barplot_diff_norm_Loc", sample_name, ".png"),
+         plot = barplot2,
+         width = 15, height = 10)
+
+  # Fermer le fichier PDF
+  dev.off()
+  
+  
+  
+  
+  
+  ####################### Barplot avec les bras chromosomiques ####################### 
+  
+  df_barplot3 <- df_barplot2 %>% 
+    group_by(Bras_chromosomique, Patient, Chromosome) %>%
+    summarise(diff_median_CNA_score_norm = median(diff_median_CNA_score_norm, na.rm = TRUE), .groups = "drop") %>% 
+    mutate(Bras = ifelse(grepl("p", Bras_chromosomique), "p", "q"))  # CRéer la colonne bras)
+    
+    
+  barplot3 <- ggplot(df_barplot3, aes(x = Bras_chromosomique, y = diff_median_CNA_score_norm, fill = Bras)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = c("p" = "#33a02c", "q" = "#ff7f00")) +
+    facet_wrap(~ Chromosome, scales = "free_x") +  # Un graphique par chromosome
+    labs(title = "Barplot des scores CNA par cytobande et chromosome",
+         x = "Bras chromosomiques",
+         y = "Diff_scores_CNA entre tissus") +
+    theme_bw() +
+    theme(axis.text.x = element_text(size = 5, angle = 90, vjust = 0.5, hjust = 1),  # Couleur des étiquettes
+          axis.text.y = element_text(size = 8),
+          axis.title = element_text(size = 10),
+          plot.title = element_text(hjust = 0.5),
+          strip.text = element_text(size = 10))  # Taille du texte des facettes
+  
+  barplot3
+
+  # Ouvrir un fichier PDF
+  pdf(file = paste0(output_dir, "Barplot_Bras", sample_name, ".pdf"),
+      width = 15, height = 10)
+  
+  ggsave(filename = paste0(output_dir, "Barplot_diff_norm_Bras", sample_name, ".png"),
+         plot = barplot3,
+         width = 15, height = 10)
+
+  # Fermer le fichier PDF
+  dev.off()
+  
+  
+  
+  
+  # Faire un plot de tous les chromosomes ensemble pour le patient en fonction des cytobandes
+
+  df_barplot_tissue1 <- df_barplot %>% 
+    filter(Annotations_new == comparaison_tissus_cnv[[sample_name]][1])
+  df_barplot_tissue2 <- df_barplot %>%
+    filter(Annotations_new == comparaison_tissus_cnv[[sample_name]][2])
+  
+  lineplot <- ggplot(df_barplot_tissue1, aes(x = Loc, y = median_CNA_score_norm, color = Evenement)) +
+    geom_segment(aes(xend = Loc, y = 0, yend = median_CNA_score_norm), linewidth = 1) +
+    scale_color_manual(values = c("Amplification" = "red", "Délétion" = "blue")) +
+    labs(title = paste0("Graphique des scores CNA par cytobande du patient ", sample_name),
+         x = "Bras chromosomiques",
+         y = "Différences normalisées des scores CNA entre tissus") +
+    theme_bw() +
+    theme(axis.text.x = element_text(size = 5, angle = 90, vjust = 0.5, hjust = 1),
+          axis.text.y = element_text(size = 8),
+          axis.title = element_text(size = 10),
+          plot.title = element_text(hjust = 0.5))
+
+  # Rajouter une ligne horizontal qui représente la médiane des bras chromosomiques
+  # df_temp <- df_barplot2 %>% 
+  #   group_by(Bras_chromosomique) %>%
+  #   summarise(median_diff_median_CNA_score_norm = median(diff_median_CNA_score_norm, na.rm = TRUE), .groups = "drop")
+  
+  # Rajouter une ligne horizontale pour chaque bras chromosomique (la mediane)
+  
+  # for (i in 1:nrow(df_temp)) {
+  #   lineplot <- lineplot +
+  #     geom_segment(data = df_temp[i, ], 
+  #                  aes(x = Loc, xend =, y = median_diff_median_CNA_score_norm), 
+  #                  linetype = "solid", 
+  #                  color = "red")
+  # }
+
+
+  print(lineplot)
+
+  
+  
+  
+  
+  
+  
+  # Faire un plot de tous les chromosomes ensemble pour le patient en fonction des bras chromosomiques
+  df_barplot_tissue1 <- df_barplot %>% 
+    filter(Annotations_new == comparaison_tissus_cnv[[sample_name]][1])
+  df_barplot_tissue2 <- df_barplot %>%
+    filter(Annotations_new == comparaison_tissus_cnv[[sample_name]][2])
+  
+  
+  df_barplot_tissue1_median_bras <- df_barplot_tissue1 %>% 
+    group_by(Bras_chromosomique) %>%
+    summarise(median_CNA_score_norm_per_bras = median(median_CNA_score_norm, na.rm = TRUE), .groups = "drop") %>% 
+    mutate(Evenement = ifelse(median_CNA_score_norm_per_bras > 0, "Amplification", "Délétion")) %>% # CRéer la col Evenement
+    mutate(Tissu = comparaison_tissus_cnv[[sample_name]][1])
+  df_barplot_tissue2_median_bras <- df_barplot_tissue2 %>%
+    group_by(Bras_chromosomique) %>%
+    summarise(median_CNA_score_norm_per_bras = median(median_CNA_score_norm, na.rm = TRUE), .groups = "drop") %>% 
+    mutate(Evenement = ifelse(median_CNA_score_norm_per_bras > 0, "Amplification", "Délétion")) %>%  # CRéer la col Evenement
+    mutate(Tissu = comparaison_tissus_cnv[[sample_name]][2])
+
+  
+  df_barplot_combined <- bind_rows(df_barplot_tissue1_median_bras, df_barplot_tissue2_median_bras) %>% 
+    mutate(pct_median_CNA_score_norm_per_bras = median_CNA_score_norm_per_bras * 100) %>% 
+    # Ordonner les bras chromosomiques
+    mutate(Bras_chromosomique = factor(Bras_chromosomique, levels = mixedsort(unique(Bras_chromosomique))))
+  
+  tissu1 <- comparaison_tissus_cnv[[sample_name]][1]
+  tissu2 <- comparaison_tissus_cnv[[sample_name]][2]
+  
+  couleurs_tissus <- setNames(c("orange", "green"), c(tissu1, tissu2))
+  
+  plot <- ggplot(df_barplot_combined, aes(x = Bras_chromosomique, y = pct_median_CNA_score_norm_per_bras, fill = Tissu)) +
+    geom_col(position = position_dodge(width = 0.8), aes(group = Tissu), width = 0.7) +
+    scale_fill_manual(values = couleurs_tissus) +
+    labs(title = paste0("Graphique des scores CNA normalisés par bras chromosomique du patient ", sample_name),
+         x = "Bras chromosomiques",
+         y = "Scores CNA normalisés (%)") +
+    theme_bw() +
+    theme(axis.text.x = element_text(size = 5, angle = 90, vjust = 0.5, hjust = 1),
+          axis.text.y = element_text(size = 8),
+          axis.title = element_text(size = 10),
+          plot.title = element_text(hjust = 0.5))
+
+  print(plot)
+  
+  
+  
+  
+  
+  
+  
+  ################################################################
+  ####################### Test statistique ####################### 
+  ################################################################
+  
+  # Comparer la distribution des cytobandes d'un bras chromosomique à la distribution de toutes les autres cytobandes #
+
+  
+  p_values <- sapply(unique(df_barplot2$Bras_chromosomique), function(bras) {
+    
+    scores_bras <- unique(df_barplot2$diff_median_CNA_score_norm[df_barplot2$Bras_chromosomique == bras])
+    scores_autres <- unique(df_barplot2$diff_median_CNA_score_norm[df_barplot2$Bras_chromosomique != bras])
+    
+    print(paste("Bras : ", bras))
+    print(paste("Nombre de cytobandes dans le bras : ", length(scores_bras)))
+    print(paste("Nombre de cytobandes dans le tous les autres bras : ", length(scores_autres)))
+
+    # Vérification du nombre d'observations
+    if (length(scores_bras) < 2 | length(scores_autres) < 2) {
+      return(NA)  # Retourne NA si un groupe a moins de 2 valeurs
+    }
+    
+    # Test de normalité sur toutes les médianes
+    if (length(scores_bras) >= 3 && length(scores_bras) <= 5000 &&
+        length(scores_autres) >= 3 && length(scores_autres) <= 5000) {
+      
+      if (shapiro.test(scores_bras)$p.value > 0.05 &&
+          shapiro.test(scores_autres)$p.value > 0.05) {
+        test_result <- t.test(scores_bras, scores_autres)
+      } else {
+        test_result <- wilcox.test(scores_bras, scores_autres)
+      }
+    
+    } else {
+      # Si trop petit ou trop grand pour shapiro, on fait un test non paramétrique
+      test_result <- wilcox.test(scores_bras, scores_autres)
+    }
+
+    
+    return(test_result$p.value)
+  })
+  
+  # Corrigé la liste de pval obtenue via Benjamini-Hochberg (en fonction du nombre de test effectués)
+  p_values_adj <- p.adjust(p_values, method = "BH")
+  # Stocker les résultats dans une dataframe
+  
+  
+  #### Comparer si les scores normalisés sont significativement différent de 0 ####
+  
+  p_values2 <- sapply(unique(df_barplot3$Bras_chromosomique), function(bras) {
+    
+    scores_bras <- unique(df_barplot3$diff_median_CNA_score_norm[df_barplot3$Bras_chromosomique == bras])
+    
+    print(paste("Bras : ", bras))
+    print(paste("Nombre de cytobandes dans le bras : ", length(scores_bras)))
+    
+    # Vérification du nombre d'observations
+    if (length(scores_bras) < 2) {
+      return(NA)  # Retourne NA si un groupe a moins de 2 valeurs
+    }
+    
+    # Test de normalité sur toutes les médianes
+    if (length(scores_bras) >= 3 && length(scores_bras) <= 5000) {
+      
+      if (shapiro.test(scores_bras)$p.value > 0.05) {
+        test_result <- t.test(scores_bras, mu = 0)
+      } else {
+        test_result <- wilcox.test(scores_bras, mu = 0)
+      }
+    
+    } else {
+      # Si trop petit ou trop grand pour shapiro, on fait un test non paramétrique
+      test_result <- wilcox.test(scores_bras, mu = 0)
+    }
+
+    
+    return(test_result$p.value)
+  })
+  
+  
+  
+  print(paste0("✅ HistoPlot pour ", sample_name, " terminé !"))
+  
+}
+# Il faut faire la difrence entre les deux types de tissus avec les scores normalisés
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+EUREKA !!!
+
+```{r cars}
+# Ordre des comparaisons
+comparaison_tissus_cnv <- list(
+  "MpBC1" = c("Epithelial tumor", "Mesenchymal tumor"),
+  "MpBC2" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC3" = c("Squamous tumor", "Spindle cell tumor"),
+  "MpBC4" = c("Osteosarcomatoid tumor", "Spindle cell tumor"),
+  "MpBC5" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC6" = c("Normal mesenchyme", "Spindle cell tumor"),
+  "MpBC7" = c("Normal epithelium", "Spindle cell tumor"),
+  "MpBC8" = c("Squamous tumor", "Mesenchymal tumor"),
+  "MpBC9" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC10" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC11" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC13" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC14" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC15" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC16" = c("Epithelial tumor", "Chondroid tumor")
+)
+
+  ##########################################################################
+  ####################### Boucle pour chaque patient #######################
+  ##########################################################################
+
+for (sample_name in samples_names) {
+  
+  if (sample_name == "MpBC6" | sample_name == "MpBC7") {
+    next  # Passer à l'itération suivante si l'échantillon est MpBC6 ou MpBC7 (car échantillons purs)
+  }
+  
+  print(paste0("🔍  Comparaison des tissus pour ", sample_name))
+  
+  
+  # Chemin du dossier
+  output_dir <- paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/ShiftPlot/", sample_name, "/")
+  
+  # Vérifier si le dossier existe, sinon le créer
+  if (!dir.exists(output_dir)) {
+      dir.create(output_dir, recursive = TRUE) }
+    
+ 
+  
+  
+  
+  
+  ####################### Un dataframe filtré par patient ####################### 
+
+
+
+  df_patient <- my_df %>% 
+    filter(Patient == sample_name,
+           Annotations_new %in% comparaison_tissus_cnv[[sample_name]][1:2]) %>% 
+    group_by(Loc, Patient, Annotations_new, Chromosome, Bras_chromosomique, Cytobande) %>%
+    summarise(median_CNA_score = median(CNA_score, na.rm = TRUE), .groups = "drop")
+  
+  
+  
+  
+  
+  
+  
+  
+  ####################### Normalisation des scores CNA #######################
+
+  
+  # <==== On normalise les scores des deletions et amplifications ====>
+
+  
+  
+  df_tissue1 <- df_patient %>%
+    filter(Annotations_new == comparaison_tissus_cnv[[sample_name]][1]) %>%
+    group_by(Patient, Annotations_new, Chromosome, Bras_chromosomique) %>%
+    summarise(median_CNA_score = median(median_CNA_score, na.rm = TRUE), .groups = "drop")
+  # On crée une nouvelle colonne pour stocker les scores normalisés pour plus tard
+  df_tissue1$median_CNA_score_norm <- df_tissue1$median_CNA_score
+  
+
+  df_tissue2 <- df_patient %>%
+    filter(Annotations_new == comparaison_tissus_cnv[[sample_name]][2]) %>%
+    group_by(Patient, Annotations_new, Chromosome, Bras_chromosomique) %>%
+    summarise(median_CNA_score = median(median_CNA_score, na.rm = TRUE), .groups = "drop")
+  # On crée une nouvelle colonne pour stocker les scores normalisés pour plus tard
+  df_tissue2$median_CNA_score_norm <- df_tissue2$median_CNA_score
+  
+  temp_df <- bind_rows(df_tissue1, df_tissue2)
+  
+  ## Les délétions
+  minimum_median <- min(temp_df$median_CNA_score, na.rm = TRUE) # Valeur minimale ultime de mon patient
+  minimum_tissue <- unique(temp_df$Annotations_new[temp_df$median_CNA_score == minimum_median]) # Tissu correspondant à la valeur minimale
+  
+  # Les amplifications
+  maximum_median <- max(temp_df$median_CNA_score, na.rm = TRUE) # Valeur maximale ultime de mon patient
+  maximum_tissue <- unique(temp_df$Annotations_new[temp_df$median_CNA_score == maximum_median]) # Tissu correspondant à la valeur maximale
+  
+  #########Normalisation jordan##########
+  min_tissue1 <- min(df_tissue1$median_CNA_score, na.rm = TRUE)
+  min_tissue2 <- min(df_tissue2$median_CNA_score, na.rm = TRUE)
+  max_tissue1 <- max(df_tissue1$median_CNA_score, na.rm = TRUE)
+  max_tissue2 <- max(df_tissue2$median_CNA_score, na.rm = TRUE)
+  
+  # Calculer le facteur de normalisation
+  if (abs(max_tissue1) > abs(max_tissue2)) {
+    factor_max <- max_tissue1 / max_tissue2
+  } else {
+    factor_max <- max_tissue2 / max_tissue1
+  }
+  
+  if (abs(min_tissue1) > abs(min_tissue2)) {
+    factor_min <- min_tissue1 / min_tissue2
+  } else {
+    factor_min <- min_tissue2 / min_tissue1
+  }
+
+
+
+  
+  # Normalisation des déletions
+  if (minimum_tissue == comparaison_tissus_cnv[[sample_name]][1]) { # Si la valeur minimale est dans le tissu 1
+    for (cna_score in df_tissue2$median_CNA_score) { # POur chaque score CNA du tissu 2
+      if (cna_score < 0) { # Si le score CNA est négatif (délétion)
+        cna_score_norm <- cna_score * abs(factor_min) # On normalise les score de ce tissue 2 avec le minimum du tissu 1
+        # cna_score_norm <- cna_score * abs(minimum_median) #On normalise les score de ce tissue 2 avec le minimum du tissu1
+
+        # Stocker la valeur normalisée dans le dataframe dans une nouvelle colonne
+        df_tissue2$median_CNA_score_norm[df_tissue2$median_CNA_score == cna_score] <- cna_score_norm
+      }
+    }
+  } else { # Si la valeur minimale est dans le tissu 2
+    for (cna_score in df_tissue1$median_CNA_score) { # POur chaque score CNA du tissu 1
+      if (cna_score < 0) { # Si le score CNA est négatif (délétion)
+        cna_score_norm <- cna_score * abs(factor_min) # On normalise les score de ce tissue 1 avec le minimum du tissu 2
+        # cna_score_norm <- cna_score * abs(minimum_median) #On normalise les score de ce tissue 1 avec le minimum du tissu2
+        # Stocker la valeur normalisée dans le dataframe dans une nouvelle colonne
+        df_tissue1$median_CNA_score_norm[df_tissue1$median_CNA_score == cna_score] <- cna_score_norm
+      }
+    }
+  }
+
+  # Normalisation des amplifications
+  if (maximum_tissue == comparaison_tissus_cnv[[sample_name]][1]) { # Si la valeur maximale est dans le tissu 1
+    for (cna_score in df_tissue2$median_CNA_score) { # POur chaque score CNA du tissu 2
+      if (cna_score > 0) { # Si le score CNA est positif (amplification)
+        cna_score_norm <- cna_score * abs(factor_max) # On normalise les score de ce tissue 2 avec le maximum du tissu 1
+        # cna_score_norm <- cna_score * abs(maximum_median) #On normalise les score de ce tissue 2 avec le minimum du tissu1
+        # Stocker la valeur normalisée dans le dataframe dans une nouvelle colonne
+        df_tissue2$median_CNA_score_norm[df_tissue2$median_CNA_score == cna_score] <- cna_score_norm
+      }
+    }
+  } else { # Si la valeur maximale est dans le tissu 2
+    for (cna_score in df_tissue1$median_CNA_score) { # POur chaque score CNA du tissu 1
+      if (cna_score > 0) { # Si le score CNA est positif (amplification)
+        cna_score_norm <- cna_score * abs(factor_max) # On normalise les score de ce tissue 1 avec le maximum du tissu 2
+        # cna_score_norm <- cna_score * abs(maximum_median) #On normalise les score de ce tissue 1 avec le minimum du tissu2
+        # Stocker la valeur normalisée dans le dataframe dans une nouvelle colonne
+        df_tissue1$median_CNA_score_norm[df_tissue1$median_CNA_score == cna_score] <- cna_score_norm
+      }
+    }
+  }
+
+  
+  
+  
+  
+
+  
+  df_tissue2 <- df_tissue2 %>% 
+    mutate(Tissu = comparaison_tissus_cnv[[sample_name]][2]) %>% 
+    arrange(Patient, Annotations_new, Chromosome) # Trier par patient, annotation, chromosome, cytobande, bras et cytobande)
+
+  df_tissue1 <- df_tissue1 %>% 
+    mutate(Tissu = comparaison_tissus_cnv[[sample_name]][1]) %>% 
+    arrange(Patient, Annotations_new, Chromosome) # Trier par patient, annotation, chromosome, cytobande, bras et cytobande)
+
+  
+  df_combined <- bind_rows(df_tissue1, df_tissue2) %>% 
+    mutate(pct_median_CNA_score_norm = median_CNA_score_norm * 100,
+           Chromosome = factor(Chromosome, levels = mixedsort(unique(Chromosome))),
+           Evenement = ifelse(median_CNA_score_norm > 0, "Amplification", "Délétion"),
+           Bras_chromosomique = factor(Bras_chromosomique, levels = mixedsort(unique(Bras_chromosomique))))
+  
+  # On scale sur une echelle de -1 à 1
+  for (i in 1:nrow(df_combined)) {
+    if (df_combined$pct_median_CNA_score_norm[i] > 0) {
+      df_combined$pct_median_CNA_score_norm_to1[i] <- df_combined$pct_median_CNA_score_norm[i] / abs(max(df_combined$pct_median_CNA_score_norm, na.rm = TRUE))
+    } else {
+      df_combined$pct_median_CNA_score_norm_to1[i] <- df_combined$pct_median_CNA_score_norm[i] / abs(min(df_combined$pct_median_CNA_score_norm, na.rm = TRUE))
+    }
+  }
+
+  
+  
+  tissu1 <- comparaison_tissus_cnv[[sample_name]][1]
+  tissu2 <- comparaison_tissus_cnv[[sample_name]][2]
+  
+  couleurs_tissus <- setNames(c("orange", "green"), c(tissu1, tissu2))
+  
+  plot <- ggplot(df_combined, aes(x = Bras_chromosomique, y = pct_median_CNA_score_norm_to1, fill = Tissu)) +
+    geom_col(position = position_dodge(width = 0.8), aes(group = Tissu), width = 0.7) +
+    scale_fill_manual(values = couleurs_tissus) +
+    labs(title = paste0("Graphique des scores CNA normalisés par bras chromosomique du patient ", sample_name),
+         x = "Bras chromosomiques",
+         y = "Scores CNA normalisés (%)") +
+    theme_bw() +
+    theme(axis.text.x = element_text(size = 5, angle = 90, vjust = 0.5, hjust = 1),
+          axis.text.y = element_text(size = 8),
+          axis.title = element_text(size = 10),
+          plot.title = element_text(hjust = 0.5))
+
+  print(plot)
+  
+  ggsave(plot, filename = paste0(output_dir, "Barplot_norm_Eureka_", sample_name, ".png"), width = 10, height = 5)
+  
+  print(paste0("✅ Plot pour ", sample_name, " terminé !"))
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  ####################### Faire la différence entre tissus #######################
+  # Faire une nouvelle colonne qui pour chaque bras_chromosomique fait la différence entre les deux tissus (Annotations_new)
+  df_diff <- df_combined %>%
+    group_by(Patient, Bras_chromosomique) %>%
+    summarise(diff_median_CNA_score_norm = 
+                abs(
+                  pct_median_CNA_score_norm_to1[Annotations_new == comparaison_tissus_cnv[[sample_name]][1]] -
+                    pct_median_CNA_score_norm_to1[Annotations_new == comparaison_tissus_cnv[[sample_name]][2]]
+                  ), 
+              .groups = "drop")
+
+}
+```
+
+
+Tests stats
+
+```{r}
+# Ordre des comparaisons
+comparaison_tissus_cnv <- list(
+  "MpBC1" = c("Epithelial tumor", "Mesenchymal tumor"),
+  "MpBC2" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC3" = c("Squamous tumor", "Spindle cell tumor"),
+  "MpBC4" = c("Osteosarcomatoid tumor", "Spindle cell tumor"),
+  "MpBC5" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC6" = c("Normal mesenchyme", "Spindle cell tumor"),
+  "MpBC7" = c("Normal epithelium", "Spindle cell tumor"),
+  "MpBC8" = c("Squamous tumor", "Mesenchymal tumor"),
+  "MpBC9" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC10" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC11" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC13" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC14" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC15" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC16" = c("Epithelial tumor", "Chondroid tumor")
+)
+
+# Pour plus tard
+df_p_values_1vsAll <- data.frame()
+df_p_values_diff0 <- data.frame()
+corr_value_list <- list()
+
+
+  ##########################################################################
+  ####################### Boucle pour chaque patient #######################
+  ##########################################################################
+
+for (sample_name in samples_names) {
+  
+  if (sample_name == "MpBC6" | sample_name == "MpBC7") {
+    next  # Passer à l'itération suivante si l'échantillon est MpBC6 ou MpBC7 (car échantillons purs)
+  }
+  
+  print(paste0("🔍  Test sats pour ", sample_name))
+  
+  
+  # Chemin du dossier
+  output_dir <- paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/ShiftPlot/", sample_name, "/")
+  
+  # Vérifier si le dossier existe, sinon le créer
+  if (!dir.exists(output_dir)) {
+      dir.create(output_dir, recursive = TRUE) }
+    
+ 
+  
+  
+  
+  
+  ####################### Un dataframe filtré par patient ####################### 
+
+
+
+  df_patient <- my_df %>% 
+    filter(Patient == sample_name,
+           Annotations_new %in% comparaison_tissus_cnv[[sample_name]][1:2]) %>% 
+    group_by(Loc, Patient, Annotations_new, Chromosome, Bras_chromosomique, Cytobande) %>%
+    summarise(median_CNA_score = median(CNA_score, na.rm = TRUE), .groups = "drop")
+  
+####################### Normalisation des scores CNA sans merge par bras chromosomiques ! #######################
+
+  
+  # <==== On normalise les scores des deletions et amplifications ====>
+
+  
+  
+  df_tissue1 <- df_patient %>%
+    filter(Annotations_new == comparaison_tissus_cnv[[sample_name]][1])
+  # On crée une nouvelle colonne pour stocker les scores normalisés pour plus tard
+  df_tissue1$median_CNA_score_norm <- df_tissue1$median_CNA_score
+  
+
+  df_tissue2 <- df_patient %>%
+    filter(Annotations_new == comparaison_tissus_cnv[[sample_name]][2])
+  # On crée une nouvelle colonne pour stocker les scores normalisés pour plus tard
+  df_tissue2$median_CNA_score_norm <- df_tissue2$median_CNA_score
+  
+  temp_df <- bind_rows(df_tissue1, df_tissue2)
+  
+  ## Les délétions
+  minimum_median <- min(temp_df$median_CNA_score, na.rm = TRUE) # Valeur minimale ultime de mon patient
+  minimum_tissue <- unique(temp_df$Annotations_new[temp_df$median_CNA_score == minimum_median]) # Tissu correspondant à la valeur minimale
+  
+  # Les amplifications
+  maximum_median <- max(temp_df$median_CNA_score, na.rm = TRUE) # Valeur maximale ultime de mon patient
+  maximum_tissue <- unique(temp_df$Annotations_new[temp_df$median_CNA_score == maximum_median]) # Tissu correspondant à la valeur maximale
+  
+  #########Normalisation jordan##########
+  min_tissue1 <- min(df_tissue1$median_CNA_score, na.rm = TRUE)
+  min_tissue2 <- min(df_tissue2$median_CNA_score, na.rm = TRUE)
+  max_tissue1 <- max(df_tissue1$median_CNA_score, na.rm = TRUE)
+  max_tissue2 <- max(df_tissue2$median_CNA_score, na.rm = TRUE)
+  
+  # Calculer le facteur de normalisation
+  if (abs(max_tissue1) > abs(max_tissue2)) {
+    factor_max <- max_tissue1 / max_tissue2
+  } else {
+    factor_max <- max_tissue2 / max_tissue1
+  }
+  
+  if (abs(min_tissue1) > abs(min_tissue2)) {
+    factor_min <- min_tissue1 / min_tissue2
+  } else {
+    factor_min <- min_tissue2 / min_tissue1
+  }
+
+
+
+  
+  # Normalisation des déletions
+  if (minimum_tissue == comparaison_tissus_cnv[[sample_name]][1]) { # Si la valeur minimale est dans le tissu 1
+    for (cna_score in df_tissue2$median_CNA_score) { # POur chaque score CNA du tissu 2
+      if (cna_score < 0) { # Si le score CNA est négatif (délétion)
+        cna_score_norm <- cna_score * abs(factor_min) # On normalise les score de ce tissue 2 avec le minimum du tissu 1
+        # cna_score_norm <- cna_score * abs(minimum_median) #On normalise les score de ce tissue 2 avec le minimum du tissu1
+
+        # Stocker la valeur normalisée dans le dataframe dans une nouvelle colonne
+        df_tissue2$median_CNA_score_norm[df_tissue2$median_CNA_score == cna_score] <- cna_score_norm
+      }
+    }
+  } else { # Si la valeur minimale est dans le tissu 2
+    for (cna_score in df_tissue1$median_CNA_score) { # POur chaque score CNA du tissu 1
+      if (cna_score < 0) { # Si le score CNA est négatif (délétion)
+        cna_score_norm <- cna_score * abs(factor_min) # On normalise les score de ce tissue 1 avec le minimum du tissu 2
+        # cna_score_norm <- cna_score * abs(minimum_median) #On normalise les score de ce tissue 1 avec le minimum du tissu2
+        # Stocker la valeur normalisée dans le dataframe dans une nouvelle colonne
+        df_tissue1$median_CNA_score_norm[df_tissue1$median_CNA_score == cna_score] <- cna_score_norm
+      }
+    }
+  }
+  
+  # Normalisation des amplifications
+  if (maximum_tissue == comparaison_tissus_cnv[[sample_name]][1]) { # Si la valeur maximale est dans le tissu 1
+    for (cna_score in df_tissue2$median_CNA_score) { # POur chaque score CNA du tissu 2
+      if (cna_score > 0) { # Si le score CNA est positif (amplification)
+        cna_score_norm <- cna_score * abs(factor_max) # On normalise les score de ce tissue 2 avec le maximum du tissu 1
+        # cna_score_norm <- cna_score * abs(maximum_median) #On normalise les score de ce tissue 2 avec le minimum du tissu1
+        # Stocker la valeur normalisée dans le dataframe dans une nouvelle colonne
+        df_tissue2$median_CNA_score_norm[df_tissue2$median_CNA_score == cna_score] <- cna_score_norm
+      }
+    }
+  } else { # Si la valeur maximale est dans le tissu 2
+    for (cna_score in df_tissue1$median_CNA_score) { # POur chaque score CNA du tissu 1
+      if (cna_score > 0) { # Si le score CNA est positif (amplification)
+        cna_score_norm <- cna_score * abs(factor_max) # On normalise les score de ce tissue 1 avec le maximum du tissu 2
+        # cna_score_norm <- cna_score * abs(maximum_median) #On normalise les score de ce tissue 1 avec le minimum du tissu2
+        # Stocker la valeur normalisée dans le dataframe dans une nouvelle colonne
+        df_tissue1$median_CNA_score_norm[df_tissue1$median_CNA_score == cna_score] <- cna_score_norm
+      }
+    }
+  }
+
+  
+  
+  
+  
+
+  
+  df_tissue2 <- df_tissue2 %>% 
+    mutate(Tissu = comparaison_tissus_cnv[[sample_name]][2]) %>% 
+    arrange(Patient, Annotations_new, Chromosome) # Trier par patient, annotation, chromosome, cytobande, bras et cytobande)
+
+  df_tissue1 <- df_tissue1 %>% 
+    mutate(Tissu = comparaison_tissus_cnv[[sample_name]][1]) %>% 
+    arrange(Patient, Annotations_new, Chromosome) # Trier par patient, annotation, chromosome, cytobande, bras et cytobande)
+
+  
+  df_combined <- bind_rows(df_tissue1, df_tissue2) %>% 
+    mutate(pct_median_CNA_score_norm = median_CNA_score_norm * 100,
+           Chromosome = factor(Chromosome, levels = mixedsort(unique(Chromosome))),
+           Evenement = ifelse(median_CNA_score_norm > 0, "Amplification", "Délétion"),
+           Bras_chromosomique = factor(Bras_chromosomique, levels = mixedsort(unique(Bras_chromosomique))))
+  
+  # On scale sur une echelle de -1 à 1
+  for (i in 1:nrow(df_combined)) {
+    if (df_combined$pct_median_CNA_score_norm[i] > 0) {
+      df_combined$pct_median_CNA_score_norm_to1[i] <- df_combined$pct_median_CNA_score_norm[i] / abs(max(df_combined$pct_median_CNA_score_norm, na.rm = TRUE))
+    } else {
+      df_combined$pct_median_CNA_score_norm_to1[i] <- df_combined$pct_median_CNA_score_norm[i] / abs(min(df_combined$pct_median_CNA_score_norm, na.rm = TRUE))
+    }
+  }
+  
+  
+  
+  
+  
+  
+  
+  ########################## Corplot avec les scores normalisés #######################
+
+  print(paste0("Création du CorrPlot pour ", sample_name))
+  # Corrélation Plot
+  # Fusionner les données en utilisant les cytobandes communes
+  first_tissu_subset <- df_combined %>%
+    filter(Annotations_new == comparaison_tissus_cnv[[sample_name]][1]) %>%
+    select(Patient, Chromosome, Loc, Bras_chromosomique, pct_median_CNA_score_norm_to1 ) %>%
+    rename(cnv_cyt = Loc, 
+           median_CNA_score = pct_median_CNA_score_norm_to1,
+           chromosomes = Chromosome)
+  
+  second_tissu_subset <- df_combined %>%
+    filter(Annotations_new == comparaison_tissus_cnv[[sample_name]][2]) %>%
+    select(Patient, Chromosome, Loc, Bras_chromosomique, pct_median_CNA_score_norm_to1 ) %>%
+    rename(cnv_cyt = Loc, 
+           median_CNA_score = pct_median_CNA_score_norm_to1,
+           chromosomes = Chromosome)
+
+  merged_data <- merge(first_tissu_subset, second_tissu_subset,
+                       by = c("Patient", "chromosomes", "cnv_cyt", "Bras_chromosomique"),
+                       suffixes = c("_first_tissue", "_second_tissue")) # %>% 
+    # left_join(results_list[[sample_name]], by = "Bras_chromosomique")
+
+  correlation_score <- cor(x = merged_data$median_CNA_score_first_tissue,
+                           y = merged_data$median_CNA_score_second_tissue,
+                           method = "pearson")
+  
+  corr_value_list[[sample_name]] <- correlation_score
+  print("Correlation score stored")
+
+  # Variables pour les axes
+  x <- merged_data$median_CNA_score_first_tissue
+  y <- merged_data$median_CNA_score_second_tissue
+
+
+  # Définir le chemin du dossier spécifique au sample_name
+  output_dir <- paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/CorrPlot", sample_name, "/")
+  
+  # Vérifier si le dossier existe, sinon le créer
+  if (!dir.exists(output_dir)) {
+      dir.create(output_dir, recursive = TRUE)
+  }
+    
+  for (bras in (merged_data$Bras_chromosomique)) {
+  
+    # Vérifier que x et y ne sont pas vides ou entièrement NA
+    if (length(x) > 0 && length(y) > 0 && any(!is.na(x)) && any(!is.na(y))) {
+        
+  
+      
+      # Générer le chemin complet du fichier PDF
+      pdf_path <- paste0(output_dir, "veryokveryok_CorrPlot_", sample_name, "_", bras, ".pdf")
+      
+      # Ouvrir le fichier PDF
+      pdf(file = pdf_path, width = 10, height = 10)
+  
+      
+      
+      # Déterminer les limites de l'axe en évitant les valeurs infinies
+      x_lim <- range(x, na.rm = TRUE)
+      y_lim <- range(y, na.rm = TRUE)
+  
+      if (all(is.finite(x_lim)) && all(is.finite(y_lim))) {
+  
+          
+          point_colors <- ifelse(merged_data$Bras_chromosomique == bras, "red", "black")
+          
+          # # Générer le plot avec couleurs par chromosome
+          # plot(x, y, 
+          #      xlab = paste0("CNA Score - ", comparaison_tissus_cnv[[sample_name]][1]), 
+          #      ylab = paste0("CNA Score - ", comparaison_tissus_cnv[[sample_name]][2]), 
+          #      main = paste0(sample_name, " - Correlation Plot - ", comparaison_tissus_cnv[[sample_name]][1], " vs ", comparaison_tissus_cnv[[sample_name]][2], 
+          #                    " \nPearson's Correlation: ", round(correlation_score, 2),
+          #                    " \nBras chromosomique: ", bras),
+          #      
+          #      col = point_colors,  # Coloration selon le chromosome
+          #      pch = 19, 
+          #      cex = 1.5,  
+          #      xlim = x_lim + c(-0.1, 0.1), 
+          #      ylim = y_lim + c(-0.1, 0.1)
+          # )
+          
+          # 1. Plot tous les points en noir par défaut
+          plot(x, y,
+               xlab = paste0("CNA Score - ", comparaison_tissus_cnv[[sample_name]][1]), 
+               ylab = paste0("CNA Score - ", comparaison_tissus_cnv[[sample_name]][2]), 
+               main = paste0(sample_name, " - Correlation Plot - ", comparaison_tissus_cnv[[sample_name]][1], " vs ", comparaison_tissus_cnv[[sample_name]][2], 
+                             " \nPearson's Correlation: ", round(correlation_score, 2),
+                             " \nBras chromosomique: ", bras),
+               col = "black",
+               pch = 19,
+               cex = 1.5,
+               xlim = x_lim + c(-0.1, 0.1),
+               ylim = y_lim + c(-0.1, 0.1))
+          
+          # 2. Puis on ajoute les points rouges par-dessus, sinon ils sont enfouies :'(
+          points(x[merged_data$Bras_chromosomique == bras],
+                 y[merged_data$Bras_chromosomique == bras],
+                 col = "red", 
+                 pch = 19, 
+                 cex = 1.5)
+
+
+          abline(a = 0, b = 1, col = "black", lwd = 2, lty = 1)
+          abline(lm(y ~ x), col = "blue", lwd = 2, lty = 2)
+  
+          legend("topleft", 
+                 # x = 0.4269, y = -0.379,
+           legend = c("y = x", "Régression linéaire"), 
+           col = c("black", "blue"), 
+           lty = c(1, 2), 
+           lwd = 2, 
+           title = "Droites")
+  
+          
+          # Ajouter une légende pour les chromosomes
+          legend("bottomright", 
+                 legend = c("Autres cytobandes", "Cytobandes du bras significatif"), 
+                 col = c("black", "red"), 
+                 pch = 19, 
+                 title = "Cytobandes")
+  
+      } else {
+          warning("⚠️ Impossible de tracer le plot : x ou y contient uniquement des valeurs infinies ou NA.")
+      }
+  
+      # Fermer le fichier PDF
+      dev.off()
+  
+  
+  } else {
+      warning("⚠️ Pas assez de données valides pour générer le plot.")
+  }
+    
+
+  }
+  
+  print(paste0("✅ Correlations plot pour ", sample_name, " terminé et sauvegardé !"))
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  ####################### Faire la différence entre tissus #######################
+  # Faire une nouvelle colonne qui pour chaque bras_chromosomique fait la différence entre les deux tissus (Annotations_new)
+  df_diff <- df_combined %>%
+    group_by(Patient, Loc, Bras_chromosomique) %>%
+    summarise(diff_median_CNA_score_norm = 
+                abs(
+                  pct_median_CNA_score_norm_to1[Annotations_new == comparaison_tissus_cnv[[sample_name]][1]] -
+                    pct_median_CNA_score_norm_to1[Annotations_new == comparaison_tissus_cnv[[sample_name]][2]]
+                  ), 
+              .groups = "drop") %>% 
+    mutate(Bras_chromosomique = factor(Bras_chromosomique, levels = mixedsort(unique(Bras_chromosomique))))
+  
+  
+  
+  
+  ################################################################
+  ####################### Test statistique ####################### 
+  ################################################################
+  
+  # 1vsAll
+  # Comparer la distribution des cytobandes d'un bras chromosomique à la distribution de toutes les autres cytobandes #
+
+  
+  p_values <- sapply(unique(df_diff$Bras_chromosomique), function(bras) {
+    
+    scores_bras <- unique(df_diff$diff_median_CNA_score_norm[df_diff$Bras_chromosomique == bras])
+    scores_autres <- unique(df_diff$diff_median_CNA_score_norm[df_diff$Bras_chromosomique != bras])
+    
+    print(paste("Bras : ", bras))
+    print(paste("Nombre de cytobandes dans le bras : ", length(scores_bras)))
+    print(paste("Nombre de cytobandes dans le tous les autres bras : ", length(scores_autres)))
+
+    # Vérification du nombre d'observations
+    if (length(scores_bras) < 2 | length(scores_autres) < 2) {
+      return(NA)  # Retourne NA si un groupe a moins de 2 valeurs
+    }
+    
+    # Test de normalité sur toutes les médianes
+    if (length(scores_bras) >= 3 && length(scores_bras) <= 5000 &&
+        length(scores_autres) >= 3 && length(scores_autres) <= 5000) {
+      
+      if (shapiro.test(scores_bras)$p.value > 0.05 &&
+          shapiro.test(scores_autres)$p.value > 0.05) {
+        test_result <- t.test(scores_bras, scores_autres)
+      } else {
+        test_result <- wilcox.test(scores_bras, scores_autres)
+      }
+    
+    } else {
+      # Si trop petit ou trop grand pour shapiro, on fait un test non paramétrique
+      test_result <- wilcox.test(scores_bras, scores_autres)
+    }
+
+    
+    return(test_result$p.value)
+  })
+  
+  # Corrigé la liste de pval obtenue via Benjamini-Hochberg (en fonction du nombre de test effectués)
+  p_values_adj_BH <- p.adjust(p_values, method = "BH")
+  p_values_adj_Bonferroni <- p.adjust(p_values, method = "bonferroni")
+  
+  # Stocker les résultats dans une dataframe
+  df_p_values_patient <- 
+    data.frame(Patient = sample_name,
+               Bras_chromosomique = unique(df_diff$Bras_chromosomique),
+               p_value = p_values,
+               p_value_adj_BH = p_values_adj_BH,
+               p_value_adj_Bonferroni = p_values_adj_Bonferroni) # %>%
+    # FIltrer les p_val_adj > 0.05
+    # filter(p_value_adj < 0.05)
+  
+  df_p_values_1vsAll <- bind_rows(df_p_values_1vsAll, df_p_values_patient)
+    
+  print(paste0("✅ Test stat 1VsAll pour ", sample_name, " terminé !"))
+
+  
+  
+
+  # Diff de 0 ?
+  #### Comparer si les scores normalisés sont significativement différent de 0 ####
+
+  p_values2 <- sapply(unique(df_diff$Bras_chromosomique), function(bras) {
+
+    scores_bras <- unique(df_diff$diff_median_CNA_score_norm[df_diff$Bras_chromosomique == bras])
+
+    print(paste("Bras : ", bras))
+    print(paste("Nombre de cytobandes dans le bras : ", length(scores_bras)))
+
+    # Vérification du nombre d'observations
+    if (length(scores_bras) < 2) {
+      return(NA)  # Retourne NA si un groupe a moins de 2 valeurs
+    }
+
+    # Test de normalité sur toutes les médianes
+    if (length(scores_bras) >= 3 && length(scores_bras) <= 5000) {
+
+      if (shapiro.test(scores_bras)$p.value > 0.05) {
+        test_result <- t.test(scores_bras, mu = 0)
+      } else {
+        test_result <- wilcox.test(scores_bras, mu = 0)
+      }
+
+    } else {
+      # Si trop petit ou trop grand pour shapiro, on fait un test non paramétrique
+      test_result <- wilcox.test(scores_bras, mu = 0)
+    }
+    
+    return(test_result$p.value)
+  })
+
+   # Corrigé la liste de pval obtenue via Benjamini-Hochberg (en fonction du nombre de test effectués)
+  p_values_adj2_BH <- p.adjust(p_values2, method = "BH")
+  p_values_adj2_Bonferroni <- p.adjust(p_values2, method = "bonferroni")
+  
+  # Stocker les résultats dans une dataframe
+  df_p_values_patient2 <- 
+    data.frame(Patient = sample_name,
+               Bras_chromosomique = unique(df_diff$Bras_chromosomique),
+               p_value2 = p_values2,
+               p_value_adj2_BH = p_values_adj2_BH,
+               p_values_adj2_Bonferroni = p_values_adj2_Bonferroni) # %>% 
+    # FIltrer les p_val_adj > 0.05
+    # filter(p_value_adj2 < 0.05)
+  
+  df_p_values_diff0 <- bind_rows(df_p_values_diff0, df_p_values_patient2)
+    
+  print(paste0("✅ Test stat Diff0 pour ", sample_name, " terminé !"))
+
+}
+
+df_p_values <- 
+  df_p_values_1vsAll %>% 
+  left_join(df_p_values_diff0, by = c("Patient", "Bras_chromosomique")) %>% 
+  mutate(Bras_chromosomique = factor(Bras_chromosomique, levels = mixedsort(unique(Bras_chromosomique)))) %>% 
+  rename(
+    p_value_1vsAll = p_value,
+    p_value_adj_BH_1vsAll = p_value_adj_BH,
+    p_value_adj_Bonferroni_1vsAll = p_value_adj_Bonferroni,
+    p_value_diff0 = p_value2,
+    p_value_adj_BH_diff0 = p_value_adj2_BH,
+    p_value_adj_Bonferroni_diff0 = p_values_adj2_Bonferroni
+  )
+  
+```
+
+```{r}
+# Faire un plot pour chaque patient des bras significatifs
+for (sample_name in samples_names) {
+  
+  if (sample_name == "MpBC6" | sample_name == "MpBC7") {
+    next  # Passer à l'itération suivante si l'échantillon est MpBC6 ou MpBC7 (car échantillons purs)
+  }
+  
+  print(paste0("🔍  On fait le barplot des p-val_adj pour ", sample_name))
+  
+  
+  # Chemin du dossier
+  output_dir <- paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/Pval_barplot/", sample_name, "/")
+  
+  # Vérifier si le dossier existe, sinon le créer
+  if (!dir.exists(output_dir)) {
+      dir.create(output_dir, recursive = TRUE) }
+  
+  
+  
+  
+  df_patient <- df_p_values %>% 
+    filter(Patient == sample_name) %>% 
+    mutate(Bras_chromosomique = factor(Bras_chromosomique, levels = mixedsort(unique(Bras_chromosomique)))) %>% 
+    arrange(p_value_adj_BH_1vsAll)
+  
+  barplot_log10_p <- ggplot(df_patient, aes(x = Bras_chromosomique, y = -log10(p_value_adj_BH_1vsAll))) +
+    geom_bar(stat = "identity", aes(fill = Bras_chromosomique)) +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") + 
+    labs(title = paste0("Bras chromosomique significatif dans ", sample_name),
+         x = "Bras chromosomique",
+         y = "-log10(p-value_adj)") +
+    theme_bw() +
+    theme(axis.text.x = element_text(size = 7, angle = 90, vjust = 0.5, hjust = 1),
+          plot.title = element_text(hjust = 0.5))
+  
+  print(barplot_log10_p)
+  # ggsave(barplot_log10_p, filename = paste0(output_dir, "Barplot_significatif_", sample_name, ".png"), width = 10, height = 5)
+  
+  
+  ggsave(barplot_log10_p, filename = paste0(output_dir, "/Barplot_significatif_", sample_name, ".png"), width = 10, height = 5)
+  print(paste0("✅ P_val_Barplot pour ", sample_name, " terminé !"))
+}
+```
+
+
+
+```{r}
+# Exemple de structure
+# Patient | Bras_chromosomique | p_adj
+
+# df_significance <- df_p_values %>%
+#   mutate(is_significant = case_when(
+#     p_value_adj_BH_1vsAll < 0.05 ~ "Significant",
+#     TRUE ~ "Not Significant"
+#   )) 
+
+print(paste0("🔍  On fait le barplot des p-val_adj pour tous les patients"))
+
+
+df_significance <- df_p_values %>%
+    mutate(is_significant = p_value_adj_BH_1vsAll < 0.05)
+
+bras_summary <- df_significance %>%
+  group_by(Bras_chromosomique) %>%
+  summarise(nb_significatifs = sum(is_significant),
+            total_patients = n()) %>% 
+  filter(!is.na(nb_significatifs))
+
+bras_summary <- bras_summary %>%
+  rowwise() %>%
+  mutate(p_value_binomtest = binom.test(nb_significatifs,
+                                        total_patients,
+                                        p = 0.05,
+                                        alternative = "greater")$p.value)
+
+bras_summary <- bras_summary %>%
+  mutate(p_value_adj = p.adjust(p_value_binomtest, method = "BH"),
+         log10_p_value_adj = -log10(p_value_adj))
+
+
+barplot_log10_p <- ggplot(bras_summary, aes(x = Bras_chromosomique, y = log10_p_value_adj)) +
+  geom_bar(stat = "identity", aes(fill = Bras_chromosomique)) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") + 
+  labs(title = "Bras chromosomique significatif dans + de patients que ce qu'on attend par hasard (seuil 5%)",
+       x = "Bras chromosomique",
+       y = "-log10(p-value_adj)") +
+  theme_bw() +
+  theme(axis.text.x = element_text(size = 7, angle = 90, vjust = 0.5, hjust = 1),
+        plot.title = element_text(hjust = 0.5))
+
+print(barplot_log10_p)
+  
+# Chemin du dossier
+output_dir <- paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/Pval_barplot/")
+
+# Vérifier si le dossier existe, sinon le créer
+if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE) }
+
+ggsave(barplot_log10_p, filename = paste0(output_dir, "Barplot_significatif_1vsAll.png"), width = 10, height = 5)
+
+```
+
+Le bras chromosomique 13q est significativement retrouvé significatif dans les patients, plus que si c'étais du au hasard (au seuil de 0.05)
+
+
+
+
