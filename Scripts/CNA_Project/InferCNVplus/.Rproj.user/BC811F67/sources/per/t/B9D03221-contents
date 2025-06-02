@@ -1,0 +1,601 @@
+---
+title: "IronHeart"
+author: "J Dutel"
+date: "2025-03-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(hdf5r)
+library(ggfortify)
+library(harmony)
+library(sctransform)
+library(viridis)
+library(stringr)
+library(viridisLite)
+library(patchwork)
+library(matrixStats)
+library(ggpubr)
+library(infercnvPlus)
+
+dir_path <- "/mnt/datadisk/Jordan/Data/"
+
+# Liste des échantillons à traiter (excluant MpBC12)
+samples <- paste0("MpBC", c(1:11, 13:16))
+
+# Liste des patients par pathologie
+Squam_tum_patients <- c("MpBC3", "MpBC8")
+Epi_tum_patients <- c("MpBC1", "MpBC2", "MpBC5", "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16")
+Mes_tum_patients <- c("MpBC1", "MpBC8")
+Mes_norm_patients <- c("MpBC1", "MpBC2", "MpBC5", "MpBC6", "MpBC9", "MpBC11", "MpBC14", "MpBC15")
+Spindle_tum_patients <- c("MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC10", "MpBC11", "MpBC14")
+Osteo_tum_patients <- c("MpBC4")
+Chondro_tum_patients <- c("MpBC9", "MpBC13", "MpBC15", "MpBC16")
+```
+
+# Load data
+## Seurat object
+```{r warning=FALSE}
+# MOI
+
+# LOADING
+# Boucle pour charger et traiter chaque échantillon
+for (sample in samples) {
+  print(paste("📥 Chargement des données pour", sample, "..."))
+  
+  # Définir le chemin des fichiers
+  data_path <- paste0(dir_path, "Visium/", sample)
+  
+  # Déterminer le batch en fonction du numéro d'échantillon
+  sample_number <- as.numeric(gsub("MpBC", "", sample))
+  
+  ## Numero batch
+  if (sample_number >= 1 & sample_number <= 8) {batch <- "batch1"} 
+  else if (sample_number >= 9 & sample_number <= 16 & sample_number != 12) {batch <- "batch2"}
+  
+  ## Numero slide
+  if (sample_number == 1 | sample_number == 2) {slide <- "slide1"} 
+  else if (sample_number == 3 | sample_number == 4) {slide <- "slide2"}
+  else if (sample_number == 5 | sample_number == 6) {slide <- "slide3"}
+  else if (sample_number == 7 | sample_number == 8) {slide <- "slide4"}
+  else if (sample_number == 9 | sample_number == 10) {slide <- "slide5"}
+  else if (sample_number == 11 | sample_number == 12) {slide <- "slide6"}
+  else if (sample_number == 13 | sample_number == 14) {slide <- "slide7"}
+  else if (sample_number == 15 | sample_number == 16) {slide <- "slide8"}
+  
+  # Charger les données 10X Spatial
+  obj <- Load10X_Spatial(data.dir = data_path, 
+                         filename = "filtered_feature_bc_matrix.h5", 
+                         assay = "Spatial", 
+                         slice = paste0("Slice_", sample)) %>% 
+    AddMetaData(metadata = batch, col.name = 'Seq_batch') %>% 
+    AddMetaData(metadata = slide, col.name = 'Visium_slide')
+  
+  # Il faut réajouter les noms des dimensions, car (jsp pourquoi) ils disparaissent lors de l'importation
+  # Lire la matrice de comptage
+  Count_Matrix <- Read10X_h5(paste0(data_path, "/filtered_feature_bc_matrix.h5"))
+  # # Extraire les dimnames de la matrice de comptage
+  dimnames_gene <- Count_Matrix@Dimnames[[1]]
+  dimnames_cell <- Count_Matrix@Dimnames[[2]]
+  # # Affecter ces dimnames à la couche "counts" de l'assay "Spatial"
+  dimnames_gene -> obj@assays[["Spatial"]]@layers[["counts"]]@Dimnames[[1]] 
+  dimnames_cell -> obj@assays[["Spatial"]]@layers[["counts"]]@Dimnames[[2]]
+
+  
+  # Charger les annotations
+  annotation_new <- read.csv(paste0(data_path, "/Annotations_new_with_unlabels.csv")) %>%
+    mutate(Barcode = paste0(sample, "_", Barcode))
+  
+  annotation_old <- read.csv(paste0(data_path, "/Annotations_old_with_unlabels.csv")) %>%
+    mutate(Barcode = paste0(sample, "_", Barcode)) %>%
+    rename("Barcode_new" = Barcode)
+  
+  # Ajouter les annotations à meta.data
+  obj@meta.data <- obj@meta.data %>%
+    cbind(annotation_new, annotation_old) %>%
+    select(-Barcode_new) %>%
+    rename("Patient" = orig.ident) %>%
+    mutate(Patient = sample)
+
+  obj <- subset(obj,
+                subset = (nCount_Spatial > 0 &
+                          Annotations_old != "" & Annotations_old != "Adipose" &
+                          Annotations_old != "Artifacts" & Annotations_old != "Immune cells" &
+                          Annotations_old != "Intermediate tumour cells" & Annotations_old != "Mixed cells" &
+                          Annotations_old != "Necrosis" & Annotations_old != "Necrotic and apoptotic tissue" &
+                          Annotations_old != "NST surrounded by spindle" & Annotations_old != "Scar-like fibrous stroma" &
+                          Annotations_new != "Pleiomorphic tumor"))
+  
+  # Convertir les données dans orig.ident en facteur
+  obj$Seq_batch <- as.factor(obj$Seq_batch)
+  obj$Visium_slide <- factor(obj$Visium_slide)
+  
+  # Sauvegarder l'objet dans l'environnement sous le nom "MpBCX"
+  assign(sample, obj)
+  
+  # On fait le propre
+  rm(annotation_old, annotation_new, obj)
+  
+  
+  
+  
+  print(paste("✅ Données chargées pour", sample))
+
+}
+
+# On change samples pour qu'il contienne les objets Seurat en eux-même (plutôt que les noms des objets (charcters))
+samples <- list(MpBC1, MpBC2, MpBC3, MpBC4, MpBC5, MpBC6, MpBC7, MpBC8, MpBC9, MpBC10, MpBC11, MpBC13, MpBC14, MpBC15, MpBC16)
+names(samples) <- c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16")
+samples_names <- names(samples)
+  
+  
+print("🎉 Tous les échantillons ont été traités avec succès !")
+```
+```{r}
+# Liste des identifiants des échantillons
+samples <- c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", 
+             "MpBC7", "MpBC8", "MpBC9", "MpBC10", "MpBC11", "MpBC13", 
+             "MpBC14", "MpBC15", "MpBC16")
+
+# Chemin de base
+base_path <- "/mnt/datadisk/Jordan/Data/Visium/"
+
+# Boucle pour charger et mettre à jour les données
+for (sample in samples) {
+  file_path <- paste0(base_path, sample, "/filtered_feature_bc_matrix.h5")
+  count_matrix <- Read10X_h5(file_path)
+  
+  # Récupérer l'objet correspondant (MpBC1, MpBC2, etc.)
+  obj <- get(sample)
+  
+  # Mettre à jour les dimnames
+  obj@assays[["Spatial"]]@layers[["counts"]]@Dimnames <- count_matrix@Dimnames
+  
+  # Rajouter MpBCX_ pour chaque barcodes
+  for (barcode in obj@assays[["Spatial"]]@layers[["counts"]]@Dimnames[[2]]) {
+    barcode <- paste0(sample, "_", barcode)
+    # Mettre à jour les barcodes
+    assign(barcode, obj)
+  }
+  
+  # Réassigner l'objet mis à jour
+  assign(sample, obj)
+  
+  # Message
+  print(paste("✅ Données mises à jour pour", sample))
+}
+
+# Il faut maintenant homogénéiser ces noms de spots avec les barcodes des refcells (rajouter MpBCX_Barcode)
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+dir_path <- "/mnt/datadisk/Jordan/Data/"
+samples <- c("MpBC1")
+data_path <- paste0(dir_path, "Visium/", sample)
+
+
+MpBC1 <- Load10X_Spatial(data.dir = data_path, 
+                         filename = "filtered_feature_bc_matrix.h5", 
+                         assay = "Spatial", 
+                         slice = paste0("Slice_", sample)) %>% 
+    AddMetaData(metadata = batch, col.name = 'Seq_batch') %>% 
+    AddMetaData(metadata = slide, col.name = 'Visium_slide')
+
+
+for (sample in samples) {
+  MpBC1@assays[["Spatial"]]@layers[["counts"]]@Dimnames <- 
+    Read10X_h5(paste0("/mnt/datadisk/Jordan/Data/Visium/", sample, "/filtered_feature_bc_matrix.h5")) %>%
+    .@Dimnames
+}
+
+for (sample in samples) {
+  MpBC1@assays[["Spatial"]]@layers[["counts"]]@Dimnames <- 
+    Read10X_h5(paste0(data_path, "/filtered_feature_bc_matrix.h5")) %>%
+    .@Dimnames
+}
+
+
+
+
+Count_Matrix_MpBC1 <- Read10X_h5(paste0("/mnt/datadisk/Jordan/Data/Visium/MpBC1/filtered_feature_bc_matrix.h5"))
+dimnames_count_matrix_MpBC1 <- Count_Matrix_MpBC1@Dimnames
+MpBC1@assays[["Spatial"]]@layers[["counts"]]@Dimnames <- dimnames_count_matrix_MpBC1
+```
+
+```{r}
+# ## INES
+# p <- c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16)
+# 
+# for ( i in p ){
+#   
+#   setwd(sprintf("/mnt/datadisk/Jordan/Data/Visium/MpBC%s", i))
+# 
+#   # Visium files --------------------------------------------------------------
+#   
+#   assign(sprintf("matrix_%s", i),
+#          Load10X_Spatial("./", "/filtered_feature_bc_matrix.h5"))  
+# 
+#   # Import seurat object and convert it to a matrix object for inferCNV
+#   assign(sprintf("matrix_%s", i),
+#          importSrat(eval(str2expression(sprintf("matrix_%s",i))),
+#                     slot = "counts", 
+#                     assay = "Spatial", 
+#                     log2tpm_tr = TRUE))
+#   
+#   
+#   # from counts to transcripts per million -------------------------------------
+#   
+#   assign(sprintf("matrix_%s",i), 
+#          umi_to_log2tpm(eval(str2expression(sprintf("matrix_%s",i)))))
+#   
+#   
+#   # Annotation files ----------------------------------------------------------
+# 
+#   ref <- read.csv(sprintf("Annotations_new_with_unlabels.csv", i),
+#                   header = TRUE, 
+#                   sep = ",", 
+#                   stringsAsFactors = TRUE)
+# 
+#   # FILTRER LES ANNOTATION !!!
+#   
+#   
+#   # change column name to "Annotations" ----------------------------------------
+#   
+#   colnames(ref)[2] <- "Annotations"
+#   
+#   # Retrieve cell types names --------------------------------------------------
+#   
+#   assign(sprintf("cells%s", i), unique( ref$Annotations))
+#   
+#   assign(sprintf("ref%s", i), ref)
+# 
+# }
+```
+
+## Count matrix
+```{r}
+# On ne garde que la matrice de comptage des objets Seurat
+for (sample in samples) {
+  paste0("matrix_count_", sample) <- importSrat(all_data,
+                                                slot = "counts", 
+                                                assay = "Spatial",
+                                                log2tpm_tr = TRUE) %>% 
+    umi_to_log2tpm() # On transforme les count de la matrice en Transcript Par Million
+}
+```
+
+
+## GTF file
+On prend le GTF de l'Homme (version hg38) pour récupérer les positions des gènes dans le génome.
+```{r}
+# Créer un fichier contenant les positions des gènes dans le génome à partir du GTF (long)
+# genomic_pos <- gtf_to_position(gtf = "/mnt/datadisk/Jordan/Data/GTF/Original/Homo_sapiens.GRCh38.113.chr.gtf",
+#                                out_file = "genomic_positions.txt", 
+#                                out_path = "./")
+
+# Importer la table fait plus haut avec le GTF
+genomic_pos <- read.table("/mnt/datadisk/Jordan/Data/GTF/InferCNVplus/genomic_positions.txt", 
+                          header = TRUE, 
+                          row.names = 1)
+```
+
+
+
+# Create Refgroup
+```{r}
+# On va créer un vecteur contenant tous les ID des cellules/spots de la matrice de compte (dans l'obet Seurat) considérés comme réference = "Normal épithélium", "Normal mesenchyme", "Blood"...
+
+# On merge les MpBC en un seul objet seurat plus pratique pour ne garder que les cellules reférences
+MpBC_merged <- merge(MpBC1, 
+                       y = c(MpBC2, MpBC3, MpBC4, MpBC5, MpBC6, MpBC7, MpBC8, 
+                             MpBC9, MpBC10, MpBC11, MpBC13, MpBC14, MpBC15, MpBC16), 
+                       add.cell.ids = samples_names,
+                       project = "MpBC_Visium",
+                       merge.data = TRUE) %>% 
+  JoinLayers()
+
+
+# Convertir les données dans orig.ident en facteur
+MpBC_merged$Patient <- factor(MpBC_merged$Patient, 
+                                levels = c("MpBC1", "MpBC2", "MpBC3", "MpBC4", "MpBC5", "MpBC6", "MpBC7", "MpBC8", 
+                                           "MpBC9", "MpBC10", "MpBC11", "MpBC13", "MpBC14", "MpBC15", "MpBC16"))
+MpBC_merged$Seq_batch <- factor(MpBC_merged$Seq_batch, 
+                                  levels = c("batch1", "batch2"))
+MpBC_merged$Visium_slide <- factor(MpBC_merged$Visium_slide, 
+                                     levels = c("slide1", "slide2", "slide3", "slide4", 
+                                                "slide5", "slide6", "slide7", "slide8"))
+
+
+
+# ON récupère le barcodes des spots annotés comme "Blood" et "Normal epithelium" et "Normal mesenchyme" pour tous les patients
+Ref_cells_barcodes <- WhichCells(MpBC_merged, 
+                                 expression = (Annotations_old %in% c("Blood")) | 
+                                              (Annotations_new %in% c("Normal epithelium", "Normal mesenchyme")))
+
+# On extrait la sous matrice de comptage correspondant aux cellules de référence
+Ref_cells_matrix <- MpBC_merged[["Spatial"]]@layers$counts[, Ref_cells_barcodes]
+
+
+
+
+
+# Sélectionner les cellules normales et récupérer leurs rownames, on stocke les ID des spots dans un vecteur
+ref_cells <- all_data@meta.data %>%
+  filter(Annotations_new %in% c("Normal epithelium", "Normal mesenchyme")) %>%
+  filter(Annotations_old %in% c("Blood")) %>% 
+  rownames()
+
+# Créer le vecteur ref_obs pour infercnvplus
+ref_obs <- all_data@meta.data %>%
+  rownames() %>%
+  setNames(ifelse(. %in% ref_cells, "reference", "observed"))
+
+```
+
+```{r}
+# create our references per patient --------------------------------------------
+
+cells_types_pooled <- c()
+
+for (i in p){
+  cells_types_pooled <- append(cells_types_pooled, 
+                               as.character(eval(
+                                 str2expression(sprintf("cells%s", i)))))}
+for(i in p){
+  all_cells <- eval(str2expression((sprintf("ref%s", i))))
+
+  
+  reference <- all_cells[c(which(all_cells$Annotations == cells_types_pooled[5] | 
+                                 all_cells$Annotations == cells_types_pooled[6] |
+                                 all_cells$Annotations == cells_types_pooled[9] |
+                                 all_cells$Annotations == cells_types_pooled[10] |
+                                 all_cells$Annotations == cells_types_pooled[20] |  
+                                 all_cells$Annotations == cells_types_pooled[25] |
+                                 all_cells$Annotations == cells_types_pooled[29])),]
+  assign(sprintf("barcodes%s",i), as.vector(reference$Barcode))
+
+# Retrieve barcodes of the unwanted annotations --------------------------------
+  assign(sprintf("unwanted%s", i), as.vector(all_cells$Barcode[c(which(
+    all_cells$Annotations == cells_types_pooled[1] | 
+      all_cells$Annotations == cells_types_pooled[4] |
+      all_cells$Annotations == cells_types_pooled[12] |
+      all_cells$Annotations == cells_types_pooled[19] |
+      all_cells$Annotations == cells_types_pooled[26] |
+      all_cells$Annotations == cells_types_pooled[28] |
+      all_cells$Annotations == cells_types_pooled[32] ))]))
+  }
+
+
+for(i in p){
+# remove the cells(rows) that we will not use -------------------------------
+  
+  assign(sprintf("ref%s", i),
+         eval(str2expression(sprintf("ref%s", i))) %>% 
+           filter(!(Annotations == cells_types_pooled[1] |
+                      Annotations == cells_types_pooled[4] |
+                      Annotations == cells_types_pooled[12] |
+                      Annotations == cells_types_pooled[26] |
+                      Annotations == cells_types_pooled[28] |
+                      Annotations == cells_types_pooled[32])))
+}
+
+
+
+
+for (i in p){
+  unwanted <- str2expression(sprintf("unwanted%s",i))
+  unwanted_col <- intersect(colnames(eval(
+    str2expression(sprintf("matrix_%s",i)))),unwanted)
+  
+  if (length(unwanted_col) != 0){
+    
+    assign(sprintf("matrix_%s",i), 
+           as.data.frame(eval(
+             str2expression(
+               sprintf("matrix_%s",i))))[, -which(colnames(
+                 eval(str2expression(sprintf("matrix_%s",i)))) %in% unwanted_col)])}
+  }
+
+
+matrix_1 <- as.data.frame(matrix_1)
+matrix_2 <- as.data.frame(matrix_2)
+matrix_3 <- as.data.frame(matrix_3)
+matrix_4 <- as.data.frame(matrix_4)
+matrix_5 <- as.data.frame(matrix_5)
+matrix_6 <- as.data.frame(matrix_6)
+matrix_7 <- as.data.frame(matrix_7)
+matrix_8 <- as.data.frame(matrix_8)
+
+setwd('./../4_RESULTS/')
+p = c(1,2,5,6,7)
+for(i in p){
+  
+  # compute CNA scores
+  assign(sprintf("cnv_obj_%s", i),inferCNV(data = eval(
+    str2expression(sprintf("matrix_%s",i))),
+    gene_pos = genomic_pos,
+    cutoff = 0.1, # 0.1 for 10x-genomics
+    reference_obs = eval(str2expression(sprintf("barcodes%s",i))),
+    window_size = 101,
+    out_path = "output_dir", 
+    noise_filter = NULL,
+    vis_bounds = "-1,1"))
+}
+
+```
+
+
+
+# Cleaning
+
+Un peu de nettoyage !
+```{r}
+rm(all_data, ref_cells)
+gc()
+```
+
+
+
+# InferCNVplus
+```{r}
+# Calucate cnv score
+
+## MOI
+# cnv_obj <- inferCNV(data = expr_tr,
+#                     gene_pos = genomic_pos,
+#                     cutoff = 0.1, # use 1 for smart-seq, 0.1 for 10x-genomics
+#                     reference_obs = ref_obs,
+#                     window_size = 101,
+#                     out_path = "output_dir", # dir is auto-created for storing outputs
+#                     noise_filter = NULL,
+#                     vis_bounds = "-1,1")
+
+
+## INES
+# for(i in p){
+#   
+#   # compute CNA score
+#   sprintf("cnv_obj_%s", i) <- inferCNV(data = expr_tr,
+#                                        gene_pos = genomic_pos,
+#                                        cutoff = 0.1, # use 1 for smart-seq, 0.1 for 10x-genomics
+#                                        reference_obs = ref_obs,
+#                                        window_size = 101,
+#                                        out_path = "output_dir", # dir is auto-created for storing outputs
+#                                        noise_filter = NULL,
+#                                        vis_bounds = "-1,1")
+# 
+# 
+#   assign(sprintf("cnv_obj_%s", i),inferCNV(data = eval(
+#     str2expression(sprintf("matrix_%s",i))),
+#     gene_pos = genomic_pos,
+#     cutoff = 0.1, # 0.1 for 10x-genomics
+#     reference_obs = eval(str2expression(sprintf("barcodes%s",i))),
+#     window_size = 101,
+#     out_path = "output_dir", 
+#     noise_filter = NULL,
+#     vis_bounds = "-1,1"))
+
+
+
+
+
+## MIX
+for(i in p){
+  
+  # compute CNA score
+  sprintf("cnv_obj_%s", i) <- inferCNV(data = expr_tr,
+                                       gene_pos = genomic_pos,
+                                       cutoff = 0.1,
+                                       reference_obs = ref_obs,
+                                       window_size = 101,
+                                       out_path = "output_dir",
+                                       noise_filter = NULL,
+                                       vis_bounds = "-1,1")
+}
+
+```
+
+# Cytoband processing
+```{r}
+cytobands <- read.csv("/mnt/datadisk/Jordan/Data/Cytoband/cytoBand.txt", 
+                      sep = "",
+                      header = FALSE,
+                      stringsAsFactors = TRUE)
+
+## remove abnormal choromosomes ------------------------------------------------
+
+cytobands <- cytobands[!grepl("_", cytobands$V1, fixed = TRUE),]
+cytobands <- cytobands[!grepl("chrM", cytobands$V1, fixed = TRUE),]
+cytobands$V1 <- str_remove_all(cytobands$V1, "chr") 
+
+
+## replace X and Y chromosomes by numbers --------------------------------------
+
+cytobands$V1[cytobands$V1 == "X"] <- "23"
+cytobands$V1[cytobands$V1 == "Y"] <- "24"
+
+
+## change type of the chromosomes from strings to integers----------------------
+
+cytobands$V1 <- lapply(cytobands$V1, strtoi)
+
+
+## replace again X and Y -------------------------------------------------------
+ 
+cytobands$V1[cytobands$V1 == 23] <- "X"
+cytobands$V1[cytobands$V1 == 24] <- "Y"
+
+
+## rename columns so that it's more obvious when calling them-------------------
+
+colnames(cytobands)[4] <-  "cytoband"
+colnames(cytobands)[1] <-  "chromosome"
+```
+
+Collect all the genes names
+```{r}
+genes <- c(rownames(genomic_pos))
+ref_genes<- data.frame(genes)
+```
+
+The aim is to position each gene on a cytoband. 
+To do so, the following function has been created:
+```{r}
+# function that takes as input the chromosome number and start position 
+# of a gene and returns the cytoband -----
+
+  ## x : chromosome 
+  ## s : position of start 
+
+search_in_cytobandsref <- function(x, s){
+  c <- cytobands[which(cytobands$chromosome == x),]
+  # Pour chaque cytoband du chromosome
+  for (i in 1:nrow(c)){
+    # Si ton start est compris entre les deux bornes (apres le start (= col 2), et apres le end (= col 3)) de la cytoband, on return le nom du cytoband correspondant
+    if (s >= c[i,2] &  s < c[i,3]){
+      return((c[i,4]))
+    }
+  }
+}
+
+## assign to each of the reference genes the cytoband on which it is located 
+
+assigned_cytoband <- list()
+
+for (g in 1:nrow(ref_genes)){
+  c <- search_in_cytobandsref(genomic_pos[ref_genes$genes[g],1], #chromosome
+                              genomic_pos[ref_genes$genes[g],2]) # start position
+  assigned_cytoband <- append(assigned_cytoband, droplevels(c[1]))
+}
+
+ref_genes$cytoband <- assigned_cytoband # add the cytobands variable
+
+ref_genes$chromosome <- 0
+ref_genes$chromosome <- genomic_pos$CHR[ref_genes$genes == rownames(genomic_pos)]
+```
+
+
+
+
+# Plotting
+```{r}
+# Cluster cells and visualize
+cnv_obj <- visualCNV(data = cnv_obj,
+                     cutree_k = 2,
+                     out_file = "plot_cnv.png")
+
+```
+

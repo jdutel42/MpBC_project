@@ -1,0 +1,28 @@
+{
+    "id": "41F3C161",
+    "path": null,
+    "project_path": null,
+    "type": "object_explorer",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1742202058426.0,
+    "source_on_save": false,
+    "relative_order": 6,
+    "properties": {
+        "id": "e648de2b14244eeca3067928d5e3f389",
+        "name": "count_matrix",
+        "title": "count_matrix",
+        "language": "R",
+        "source_window_id": "",
+        "Source": "Source"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1,
+    "encoding": "",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1742202058426,
+    "read_only": false,
+    "read_only_alternatives": []
+}

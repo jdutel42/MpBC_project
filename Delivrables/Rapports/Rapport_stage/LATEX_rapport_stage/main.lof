@@ -1,0 +1,10 @@
+\babel@toc {french}{}
+\contentsline {figure}{\numberline {1}{\ignorespaces \textbf {Figure 1 : Exemple d’échantillon MpBC mixte.}}}{6}{figure.caption.6}%
+\contentsline {figure}{\numberline {2}{\ignorespaces \textbf {Figure 2 : Correction de l’effet \textit {batch} entre les 16 échantillons distincts de MpBC.}}}{16}{figure.caption.19}%
+\contentsline {figure}{\numberline {3}{\ignorespaces \textbf {Figure 3 : Projection UMAP des spots Visium.}}}{17}{figure.caption.20}%
+\contentsline {figure}{\numberline {4}{\ignorespaces \textbf {Figure 4 : Visualisation de l’expression génique par cluster sur la projection UMAP.}}}{18}{figure.caption.21}%
+\contentsline {figure}{\numberline {5}{\ignorespaces \textbf {Figure 5 : Profil d’expression des marqueurs par archétypes et par patients.}}}{18}{figure.caption.22}%
+\contentsline {figure}{\numberline {6}{\ignorespaces \textbf {Figure 6 : Heatmap des résultats InferCNVPlus pour toutes les patientes.}}}{19}{figure.caption.24}%
+\contentsline {figure}{\numberline {7}{\ignorespaces \textbf {Figure 7 : Représentation des scores CNA obtenus avec InferCNVPlus, avant \textbf {(A)} et après normalisation \textbf {(B)}, en fonction des cytobandes mineures pour chaque chromosome du génome.}}}{20}{figure.caption.26}%
+\contentsline {figure}{\numberline {8}{\ignorespaces \textbf {Figure 8 : Volcano Plot des altérations CNA divergentes entre compartiments tumoraux appariés.}}}{21}{figure.caption.28}%
+\contentsline {figure}{\numberline {9}{\ignorespaces \textbf {Figure 9 : Analyse de la corrélation des scores CNA entre les deux sous-types tumoraux du patient MpBC9 et MpBC15.}}}{22}{figure.caption.29}%

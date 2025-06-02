@@ -1,0 +1,48 @@
+\babel@toc {french}{}
+\contentsline {section}{Liste des abréviations}{3}{section*.4}%
+\contentsline {section}{Liste des logiciels utilisés}{4}{section*.5}%
+\contentsline {section}{\numberline {1}Introduction}{5}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Contexte et état de l’art}{5}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Présentation des MpBC}{5}{subsection.1.2}%
+\contentsline {subsection}{\numberline {1.3}Problématique(s)}{6}{subsection.1.3}%
+\contentsline {subsection}{\numberline {1.4}Pertinence de la transcriptomique spatiale}{7}{subsection.1.4}%
+\contentsline {section}{\numberline {2}Matériels et méthodes}{8}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Echantillons MpBC}{8}{subsection.2.1}%
+\contentsline {subsubsection}{\numberline {2.1.1}Cohorte : CLB}{8}{subsubsection.2.1.1}%
+\contentsline {subsubsection}{\numberline {2.1.2}FFPE fixation et H\&E coloration }{8}{subsubsection.2.1.2}%
+\contentsline {subsubsection}{\numberline {2.1.3}Séquençage Visium \& alignement}{8}{subsubsection.2.1.3}%
+\contentsline {subsection}{\numberline {2.2}Annotation phénotypique des spots}{9}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Données scRNA-seq}{9}{subsection.2.3}%
+\contentsline {subsubsection}{\numberline {2.3.1}Contrôle qualité et filtrage des spots}{9}{subsubsection.2.3.1}%
+\contentsline {subsubsection}{\numberline {2.3.2}Normalisation et Scaling}{10}{subsubsection.2.3.2}%
+\contentsline {paragraph}{Nombre de gènes sélectionnés}{10}{section*.8}%
+\contentsline {subsection}{\numberline {2.4}Analyse des marqueurs phénotypiques}{10}{subsection.2.4}%
+\contentsline {subsubsection}{\numberline {2.4.1}Harmony}{10}{subsubsection.2.4.1}%
+\contentsline {paragraph}{Correction \textit {batch-effect}}{10}{section*.9}%
+\contentsline {subsubsection}{\numberline {2.4.2}Seurat}{11}{subsubsection.2.4.2}%
+\contentsline {paragraph}{UMAP}{11}{section*.10}%
+\contentsline {paragraph}{Clustering et détermination des archétypes}{11}{section*.11}%
+\contentsline {paragraph}{Expression différentielle}{11}{section*.12}%
+\contentsline {subsection}{\numberline {2.5}Analyse des altérations génétiques}{12}{subsection.2.5}%
+\contentsline {subsubsection}{\numberline {2.5.1}InferCNVPlus}{12}{subsubsection.2.5.1}%
+\contentsline {paragraph}{Constitution du groupe de cellule de références}{12}{section*.13}%
+\contentsline {paragraph}{Profils génomiques par cytobande}{12}{section*.14}%
+\contentsline {paragraph}{Normalisation}{13}{section*.16}%
+\contentsline {subsubsection}{\numberline {2.5.2}Définition des altérations génomiques divergentes}{14}{subsubsection.2.5.2}%
+\contentsline {paragraph}{Tests statistiques et VolcanoPlot}{14}{section*.17}%
+\contentsline {subsection}{\numberline {2.6}Software et packages}{14}{subsection.2.6}%
+\contentsline {subsubsection}{\numberline {2.6.1}RStudio et langage R}{14}{subsubsection.2.6.1}%
+\contentsline {paragraph}{Version du logiciel}{14}{section*.18}%
+\contentsline {section}{\numberline {3}Résultats}{15}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Analyse des marqueurs phénotypiques}{15}{subsection.3.1}%
+\contentsline {subsubsection}{\numberline {3.1.1}Réduction de dimensionalité}{15}{subsubsection.3.1.1}%
+\contentsline {subsubsection}{\numberline {3.1.2}Clustering et enrichissement archétypal}{16}{subsubsection.3.1.2}%
+\contentsline {subsubsection}{\numberline {3.1.3}Identification des gènes marqueurs}{17}{subsubsection.3.1.3}%
+\contentsline {subsection}{\numberline {3.2}Analyse des altérations génomiques divergentes}{19}{subsection.3.2}%
+\contentsline {subsubsection}{\numberline {3.2.1}Profils génomiques biphasiques}{19}{subsubsection.3.2.1}%
+\contentsline {paragraph}{Réduction par cytobande}{19}{section*.23}%
+\contentsline {paragraph}{Normalisation intra-patiente et inter-compartiments.}{19}{section*.25}%
+\contentsline {subsubsection}{\numberline {3.2.2}Identification des altérations divergentes entre compartiments appariés}{20}{subsubsection.3.2.2}%
+\contentsline {paragraph}{Test par bras chromosomique}{20}{section*.27}%
+\contentsline {section}{\numberline {4}Discussion}{23}{section.4}%
+\contentsline {section}{\numberline {5}Conclusions}{27}{section.5}%

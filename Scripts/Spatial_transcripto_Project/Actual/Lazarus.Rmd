@@ -88,6 +88,25 @@ cluster_colors_v2 <- c(
 )
 
 shape_patients = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+
+color_patient = c(
+  "MpBC1" = "#FF0000", 
+  "MpBC2" = "#00FF00", 
+  "MpBC3" = "#0000FF", 
+  "MpBC4" = "#FFFF00", 
+  "MpBC5" = "#FF00FF", 
+  "MpBC6" = "#00FFFF", 
+  "MpBC7" = "#FFA500", 
+  "MpBC8" = "#800080", 
+  "MpBC9" = "#008000", 
+  "MpBC10" = "#000080", 
+  "MpBC11" = "#808080", 
+  "MpBC12" = "#FFC0CB", 
+  "MpBC13" = "#A52A2A", 
+  "MpBC14" = "#D2691E", 
+  "MpBC15" = "#CD5C5C", 
+  "MpBC16" = "#B8860B"
+)
 ```
 
 # Loading
@@ -260,11 +279,95 @@ DimPlot(all_data,
         pt.size = 0.75,
         reduction = "pca",
         group.by = "Patient") +
-    scale_shape_manual(values = shape_patients) +
-    # scale_color_manual(values = annotation_colors) +
-    ggtitle(paste0("PCA - MpBC"))
+    # scale_shape_manual(values = shape_patients) +
+    scale_color_manual(values = color_patient) +
+    ggtitle("Analyse en composantes principales (ACP) des échantillons de patientes atteintes de MpBC")
 
-ggsave(filename = "PCA_MpBC.png", width = 12, height = 6, dpi = 300)
+# ggsave(filename = "PCA_MpBC.png", width = 12, height = 6, dpi = 300)
+
+
+
+
+
+
+
+
+library(Seurat)
+library(ggplot2)
+library(ggsci)
+
+
+# Variance
+pca_var <- Stdev(all_data[["pca"]])^2
+pca_var <- round(100 * pca_var / sum(pca_var), 1)
+
+# Plot
+p <- DimPlot(all_data,
+             pt.size = 0.75,
+             reduction = "pca",
+             group.by = "Patient") +
+  scale_color_manual(values = color_patient) +
+  labs(
+    title = "PCA according to MpBC patients",
+    color = "Patients",
+    x = paste0("PC1 (", pca_var[1], "%)"),
+    y = paste0("PC2 (", pca_var[2], "%)")
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.title = element_text(face = "bold"),
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 12)
+  )
+p
+
+ggsave("PCA_MpBC_patientes.pdf", plot = p, width = 10, height = 6, units = "in", dpi = 600)
+
+library(svglite)
+ggsave("PCA_MpBC_patientes.svg", plot = p, width = 10, height = 6, units = "in", dpi = 600, device = "svg")
+
+
+
+
+p2 <- DimPlot(all_data,
+             pt.size = 0.75,
+             reduction = "pca",
+             group.by = "Annotations_new") +
+  scale_color_manual(values = annotation_colors) +
+  labs(
+    title = "PCA according to tumoral sub-types",
+    color = "Tumoral sub-types",
+    x = paste0("PC1 (", pca_var[1], "%)"),
+    y = paste0("PC2 (", pca_var[2], "%)")
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.title = element_text(face = "bold"),
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 12)
+  )
+p2
+
+
+ggsave("PCA_MpBC_annotation.pdf", plot = p2, width = 10, height = 6, units = "in", dpi = 600)
+
+
+
+
+
+
+
+
+
+DimPlot(all_data,
+        pt.size = 0.75,
+        reduction = "pca",
+        group.by = "Annotations_new") +
+    # scale_shape_manual(values = shape_patients) +
+    scale_color_manual(values = annotation_colors) +
+    ggtitle(paste0("PCA - MpBC"))
 ```
 
 # Harmony
@@ -293,9 +396,9 @@ plot9 <- DimPlot(all_data,
         group.by = "Patient") +
     scale_shape_manual(values = shape_patients) +
     ggtitle(paste0("All Patients - Normalized Data (" , features_number, " Genes) - Harmony"))
+plot9
 
-
-ggsave(filename = paste0("All-Patients_NormalizedData(",features_number, "Genes)_Harmony(222)_", sigma_param, "_", nclust_param ,"_Patient.png"), plot = plot9, width = 12, height = 6, dpi = 300)
+# ggsave(filename = paste0("All-Patients_NormalizedData(",features_number, "Genes)_Harmony(222)_", sigma_param, "_", nclust_param ,"_Patient.png"), plot = plot9, width = 12, height = 6, dpi = 300)
 
 plot8 <- DimPlot(all_data,
         pt.size = 0.25,
@@ -303,9 +406,9 @@ plot8 <- DimPlot(all_data,
         group.by = "Seq_batch") +
     scale_shape_manual(values = shape_patients) +
     ggtitle(paste0("All Patients - Normalized Data (" ,features_number, " Genes) - Harmony"))
+plot8
 
-
-ggsave(filename = paste0("All-Patients_NormalizedData(",features_number, "Genes)_Harmony(222)_", sigma_param, "_", nclust_param ,"_Seq_batch.png"), plot = plot8, width = 12, height = 6, dpi = 300)
+# ggsave(filename = paste0("All-Patients_NormalizedData(",features_number, "Genes)_Harmony(222)_", sigma_param, "_", nclust_param ,"_Seq_batch.png"), plot = plot8, width = 12, height = 6, dpi = 300)
 
 plot7 <- DimPlot(all_data,
         pt.size = 0.25,
@@ -313,9 +416,9 @@ plot7 <- DimPlot(all_data,
         group.by = "Visium_slide") +
     scale_shape_manual(values = shape_patients) +
     ggtitle(paste0("All Patients - Normalized Data (" ,features_number, " Genes) - Harmony"))
+plot7
 
-
-ggsave(filename = paste0("All-Patients_NormalizedData(",features_number, "Genes)_Harmony(222)_", sigma_param, "_", nclust_param ,"_Visium_slide.png"), plot = plot7, width = 12, height = 6, dpi = 300)
+# ggsave(filename = paste0("All-Patients_NormalizedData(",features_number, "Genes)_Harmony(222)_", sigma_param, "_", nclust_param ,"_Visium_slide.png"), plot = plot7, width = 12, height = 6, dpi = 300)
 
 plot1_all <- DimPlot(all_data,
         pt.size = 1,
@@ -326,9 +429,72 @@ plot1_all <- DimPlot(all_data,
         scale_shape_manual(values = shape_patients) +
         ggtitle(paste0("All Patients - Normalized Data (" , features_number, " Genes) - Harmony - new_annot"))
 
-png(paste0("All-patients_NormalizedData(",features_number, "Genes)_HARMONY_new-annot_(222)_", sigma_param, "_", nclust_param ,".png"), width = 6000, height = 3000, res = 300)
+# png(paste0("All-patients_NormalizedData(",features_number, "Genes)_HARMONY_new-annot_(222)_", sigma_param, "_", nclust_param ,".png"), width = 6000, height = 3000, res = 300)
 print(plot1_all)
 dev.off()
+
+
+
+
+
+
+library(grid)  # pour gérer les marges
+library(ggplot2)
+
+
+# Création de la figure Harmony
+p_harmony_patiente <- DimPlot(all_data,
+             pt.size = 0.75,
+             reduction = "harmony",
+             group.by = "Patient",
+             ) +
+  scale_color_manual(values = color_patient) +
+  labs(
+    title = paste0("Harmony reduction according to MpBC patients"),
+    color = "Patients",
+    x = "Component 1",
+    y = "Component 2"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.title = element_text(face = "bold"),
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 12)
+  )
+
+p_harmony_patiente
+ggsave("Harmony_MpBC_patientes.pdf", plot = p_harmony_patiente, width = 10, height = 6, units = "in", dpi = 600)
+ggsave("Harmony_MpBC_patientes.svg", plot = p_harmony_patiente, width = 10, height = 6, units = "in", dpi = 600, device = "svg")
+
+
+
+
+p_harmony_annotation <- DimPlot(all_data,
+             pt.size = 0.75,
+             reduction = "harmony",
+             group.by = "Annotations_new",
+             ) +
+  scale_color_manual(values = annotation_colors) +
+  labs(
+    title = paste0("Harmony reduction according to tumoral sub-types"),
+    color = "Tumoral sub-types",
+    x = "Component 1",
+    y = "Component 2"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.title = element_text(face = "bold"),
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 12)
+  )
+
+p_harmony_annotation
+ggsave("Harmony_MpBC_annotation.pdf", plot = p_harmony_annotation, width = 10, height = 6, units = "in", dpi = 600)
+ggsave("Harmony_MpBC_annotation.svg", plot = p_harmony_annotation, width = 10, height = 6, units = "in", dpi = 600, device = "svg")
+
+
 ```
 
 # UMAP
@@ -360,8 +526,9 @@ plot2 <- DimPlot(all_data,
     scale_shape_manual(values = shape_patients) +
     # ggtitle(paste0("All Patients - Normalized Data (" ,features_number, " Genes) - UMAP"))
     ggtitle(paste0("UMAP - MpBC patients"))
+plot2
 
-ggsave(filename = paste0("Opti_All-Patients_NormalizedData(",features_number, "_", neighbours_number_all, "_", n_components_all , "_", min_dist_all , "_", set_op_mix_ratio_all, "_", spread_all , "_", metric_all, "_Genes).pdf"), plot = plot2, width = 12, height = 6, dpi = 300)
+# ggsave(filename = paste0("Opti_All-Patients_NormalizedData(",features_number, "_", neighbours_number_all, "_", n_components_all , "_", min_dist_all , "_", set_op_mix_ratio_all, "_", spread_all , "_", metric_all, "_Genes).pdf"), plot = plot2, width = 12, height = 6, dpi = 300)
 
 plot3 <- DimPlot(all_data,
         pt.size = 0.25,
@@ -371,9 +538,9 @@ plot3 <- DimPlot(all_data,
     scale_shape_manual(values = shape_patients) +
     # ggtitle(paste0("All Patients - Normalized Data (" ,features_number, " Genes) - UMAP - Old"))
     ggtitle(paste0("UMAP - MpBC patients"))
+plot3
 
-
-ggsave(filename = paste0("Opti_All-Patients_NormalizedData(",features_number, "_", neighbours_number_all, "_", n_components_all , "_", min_dist_all , "_", set_op_mix_ratio_all, "_", spread_all , "_", metric_all, "_Genes)_old.pdf"), plot = plot3, width = 12, height = 6, dpi = 300)
+# ggsave(filename = paste0("Opti_All-Patients_NormalizedData(",features_number, "_", neighbours_number_all, "_", n_components_all , "_", min_dist_all , "_", set_op_mix_ratio_all, "_", spread_all , "_", metric_all, "_Genes)_old.pdf"), plot = plot3, width = 12, height = 6, dpi = 300)
 ```
 
 
@@ -490,15 +657,15 @@ all_data <- FindClusters(all_data,
                          algorithm = a)
 
 # Visu
-p <- DimPlot(all_data, 
-             reduction = "umap", 
-             group.by = "seurat_clusters", 
-             label = TRUE) + 
-          # scale_color_manual(values = cluster_colors) +
-          ggtitle(paste0("Cluster resolution: ", i, " - MultiLouvain Algorithm"))
-print(p)
+# p <- DimPlot(all_data, 
+#              reduction = "umap", 
+#              group.by = "seurat_clusters", 
+#              label = TRUE) + 
+#           # scale_color_manual(values = cluster_colors) +
+#           ggtitle(paste0("Cluster resolution: ", i, " - MultiLouvain Algorithm"))
+# print(p)
 
-ggsave(paste0("cluster_resolution_", i, "_algo_", a, "_no_rename.png"), plot = p, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+# ggsave(paste0("cluster_resolution_", i, "_algo_", a, "_no_rename.png"), plot = p, width = 12, height = 6, dpi = 300, limitsize = FALSE)
   }
 }
 
@@ -593,7 +760,39 @@ p <- DimPlot(MpBC_obj,
 
 print(p)
 
-ggsave(paste0("MultiLouvain Clustering - Intersection with expert annotations.pdf"), plot = p, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+# ggsave(paste0("MultiLouvain Clustering - Intersection with expert annotations.pdf"), plot = p, width = 12, height = 6, dpi = 300, limitsize = FALSE)
+
+
+
+
+
+# Version jolie
+
+p <- DimPlot(MpBC_obj, 
+             reduction = "umap", 
+             group.by = "seurat_clusters_rename", 
+             label = FALSE,
+             repel = TRUE,
+             pt.size = 0.25) + 
+  scale_color_manual(values = cluster_colors_v2) +
+  labs(
+    title = "UMAP projection illustrating tumor subtype archetypes",
+    color = "Tumor archetypes"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    # axis.title = element_blank(),
+    # axis.text = element_blank(),
+    # axis.ticks = element_blank(),
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 11),
+  )
+p
+
+ggsave("UMAP_MpBC_Cluster_vs_Annotation.pdf", plot = p, width = 12, height = 6.5, units = "in", dpi = 600)
+
+
 ```
 
 ```{r}
@@ -680,7 +879,7 @@ Charger les marqueurs si déjà calculés
 # Charger les marqueurs si déjà calculés
 # markers <- readRDS("markers_pur_cluster_resolution_0.15_v2.rds")
 # markers <- read.csv("/mnt/datadisk/Jordan/Images/DEG/Minpct_0.1/markers_pur_cluster_resolution_0.15_v2_minpct_0.1.csv")
-markers <- read.csv("/mnt/datadisk/Jordan/Images/DEG/Minpct_0.5/markers_pur_cluster_resolution_0.15_v2_minpct_0.5.csv")
+markers <- read.csv("/mnt/datadisk/Jordan/Results/DEG/Minpct_0.5/markers_pur_cluster_resolution_0.15_v2_minpct_0.5.csv")
 
 
 Idents(MpBC_obj) <- "seurat_clusters_rename"
@@ -771,7 +970,7 @@ for (cluster_name in names(list_cluster_genes)) {
     reduction = "umap",
     label = TRUE,
     repel = TRUE) + 
-    ggtitle(paste0("Cluster: ", cluster_name, " - Gene: ", gene))
+    ggtitle(paste0(gene, " gene in the ", cluster_name, " archetype"))
 
   # Afficher le plot
   print(p)

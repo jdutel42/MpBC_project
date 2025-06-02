@@ -369,6 +369,9 @@ cytobands$V1[cytobands$V1 == 24] <- "Y"
 
 colnames(cytobands)[4] <-  "cytoband"
 colnames(cytobands)[1] <-  "chromosome"
+
+cytobands <- cytobands %>% 
+  mutate(Loc = paste0(chromosome, cytoband))
 ```
 
 
@@ -382,7 +385,7 @@ cytobands_maj <- cytobands %>%
   #        end = as.numeric(V3)) %>%
   mutate(cytoband = gsub("\\..*", "", cytoband)) %>%
   group_by(chromosome, cytoband) %>%
-  summarise(V2 = min(V2), V3 = max(V3), .groups = "drop") %>%
+  summarise(V2 = min(V2), V3 = max(V3), Loc = Loc, .groups = "drop") %>%
   arrange(chromosome, V2) %>% 
   relocate(cytoband, .after = V3)
 
@@ -1278,6 +1281,8 @@ if (length(x) > 0 && length(y) > 0 && any(!is.na(x)) && any(!is.na(y))) {
 ```
 
 
+C'est intéressant : A retenir >>> Amplification sur la fin du chromosomes 8 pour les tumeurs épithéliales (un peu retrouvé dans tous les patients)
+
 # Box Plot
 ```{r}
 # Boxplot
@@ -1357,28 +1362,37 @@ results_list <- list()
 for (patient in unique(my_df$Patient)) {
   
   # Sous-ensemble des données du patient
-  df_patient <- my_df %>% filter(Patient == patient)
+  df_patient <- my_df %>% filter(Patient == patient)  %>% 
+    group_by(Loc) %>%
+    # summarise(median_CNA_score = median(CNA_score, na.rm = TRUE), .groups = "drop")
+    mutate(median_CNA_score = median(CNA_score, na.rm = TRUE))
   
   # Comparer chaque bras chromosomique à toutes les autres cytobandes
   p_values <- sapply(unique(df_patient$Bras_chromosomique), function(bras) {
     
-    # Scores des cytobandes dans le bras chromosomique
-    scores_bras <- df_patient$CNA_score[df_patient$Bras_chromosomique == bras]
+    scores_bras <- unique(df_patient$median_CNA_score[df_patient$Bras_chromosomique == bras])
+    scores_autres <- unique(df_patient$median_CNA_score[df_patient$Bras_chromosomique != bras])
     
-    # Scores des autres cytobandes
-    scores_autres <- df_patient$CNA_score[df_patient$Bras_chromosomique != bras]
+    print(paste("Bras : ", bras))
+    print(paste("Nombre de cytobandes dans le bras : ", length(scores_bras)))
+    print(paste("Nombre de cytobandes dans le tous les autres bras : ", length(scores_autres)))
+
+    # Vérification du nombre d'observations
+    if (length(scores_bras) < 2 | length(scores_autres) < 2) {
+      return(NA)  # Retourne NA si un groupe a moins de 2 valeurs
+    }
     
-    # Test statistique (t-test ou Wilcoxon selon distribution)
-    if (shapiro.test(df_patient$CNA_score)$p.value > 0.05) {
-      test_result <- t.test(scores_bras, scores_autres)
-    } else {
-      test_result <- wilcox.test(scores_bras, scores_autres)
+    # Test de normalité sur toutes les médianes
+    if (shapiro.test(unique(df_patient$median_CNA_score))$p.value > 0.05) { # Si ma distribution est normale...
+      test_result <- t.test(scores_bras, scores_autres) # ...On fait un t.test...
+    } else { # ...Sinon...
+      test_result <- wilcox.test(scores_bras, scores_autres) # ...On fait un test de Wilcoxon
     }
     
     return(test_result$p.value)
   })
   
-  # Correction de Benjamini-Hochberg
+  # Correction de la liste de pval obtenue via Benjamini-Hochberg (en fonction du nombre de test effectués)
   p_values_adj <- p.adjust(p_values, method = "BH")
   
   # Stocker les résultats dans une dataframe
@@ -1388,13 +1402,217 @@ for (patient in unique(my_df$Patient)) {
     p_value = p_values,
     p_value_adj = p_values_adj
   )
+  
+  print(paste0("✅  Test statistique pour ", patient, " terminé !"))
+
+}
+```
+
+Le probleme c'est que j'ai trop peu de cytobandes majeures sur certaines bras chromosomiques donc peut etre essayer de faire les tests avec les cytobandes mineures (il faut que j'ai plus de 3 samples dans mes populations que je copare pour faire un test t)
+
+```{r}
+# Représenter les Loc avec une p_value_adj < 0.05 pour chaque patient
+for (patient in unique(my_df$Patient)) {
+  
+  # Sous-ensemble des résultats du patient
+  df_results <- results_list[[patient]]
+  
+  # Sélectionner les Loc avec une p_value_adj < 0.05
+  df_results_filtered <- df_results %>% filter(p_value_adj < 0.05)
+  
+  # Créer un plot
+  output <- ggplot(df_results_filtered, aes(x = Bras_chromosomique, y = -log10(p_value_adj))) +
+    geom_bar(stat = "identity", fill = "blue") +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") +
+    ggtitle(paste("Bras chromosomiques significatifs pour ", patient)) +
+    xlab("Bras chromosomiques") +
+    ylab("-log10(p-value)") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 90, hjust = 1, size = 8),
+      axis.text.y = element_text(size = 8),
+      axis.title = element_text(size = 10),
+      plot.title = element_text(hjust = 0.5)
+    )
+  
+  print(output)
+  
+  # # Sauvegarder le plot
+  # pdf(file = paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/Bras_chromosomiques_significatifs_", patient, ".pdf"), width = 10, height = 10)
+  # print(output)
+  # dev.off()
+  
+  print(paste0("✅ HistoPlot pour ", patient, " terminé !"))
+  
+  
+  
+  
+  # Faire le correlation plot avec les bras chromosomiques significatifs en rouge et les autres en noir
+  # 
 }
 ```
 
 
 
+```{r}
+i = 1
+corr_value_list <- list()
+comparaison_tissus_cnv <- list(
+  "MpBC1" = c("Epithelial tumor", "Mesenchymal tumor"),
+  "MpBC2" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC3" = c("Squamous tumor", "Spindle cell tumor"),
+  "MpBC4" = c("Osteosarcomatoid tumor", "Spindle cell tumor"),
+  "MpBC5" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC6" = c("Normal mesenchyme", "Spindle cell tumor"),
+  "MpBC7" = c("Normal epithelium", "Spindle cell tumor"),
+  "MpBC8" = c("Squamous tumor", "Mesenchymal tumor"),
+  "MpBC9" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC10" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC11" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC13" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC14" = c("Epithelial tumor", "Spindle cell tumor"),
+  "MpBC15" = c("Epithelial tumor", "Chondroid tumor"),
+  "MpBC16" = c("Epithelial tumor", "Chondroid tumor")
+)
 
 
+for (sample_name in samples_names) {
+  
+
+  print(paste0("🔍  Comparaison des tissus pour ", sample_name))
+  
+  df_MpBCX_annot <- df_list[[i]][c(which(df_list[[i]]$Annotations_new == comparaison_tissus_cnv[[sample_name]][1] | 
+                                        df_list[[i]]$Annotations_new == comparaison_tissus_cnv[[sample_name]][2])),]
+  
+  # On reorganise les chrom dans le bon ordre
+  df_MpBCX_annot$chromosomes <- factor(df_MpBCX_annot$chromosomes, 
+                                      levels = mixedsort(unique(df_MpBCX_annot$chromosomes)))
+  
+  df_MpBCX_annot_new <- df_MpBCX_annot %>%
+    group_by(chromosomes, cnv_cyt, Annotations_new) %>%
+    summarise(median_CNA_score = median(CNA_score, na.rm = TRUE), .groups = "drop")
+  
+  
+############################# Correlation plot #############################
+
+  print(paste0("Création du CorrPlot pour ", sample_name))
+  # Corrélation Plot
+  # Fusionner les données en utilisant les cytobandes communes
+  first_tissu_data <- df_MpBCX_annot_new[df_MpBCX_annot_new$Annotations_new == comparaison_tissus_cnv[[sample_name]][1], c("chromosomes", "cnv_cyt", "median_CNA_score")]
+  second_tissu_data <- df_MpBCX_annot_new[df_MpBCX_annot_new$Annotations_new == comparaison_tissus_cnv[[sample_name]][2], c("chromosomes", "cnv_cyt", "median_CNA_score")]
+
+  first_tissu_subset <- first_tissu_data
+  second_tissu_subset <- second_tissu_data
+
+  merged_data <- merge(first_tissu_subset, second_tissu_subset,
+                       by = c("chromosomes", "cnv_cyt"),
+                       suffixes = c("_first_tissue", "_second_tissue")) %>% 
+    mutate(Loc = paste0(chromosomes, cnv_cyt),
+           Bras_chromosomique = paste0(chromosomes, substr(cnv_cyt, 1, 1))) %>% 
+    left_join(results_list[[sample_name]], by = "Bras_chromosomique")
+
+  correlation_score <- cor(x = merged_data$median_CNA_score_first_tissue,
+                           y = merged_data$median_CNA_score_second_tissue,
+                           method = "pearson")
+  
+  corr_value_list[[sample_name]] <- correlation_score
+  print("Correlation score stored")
+
+  # Variables pour les axes
+  x <- merged_data$median_CNA_score_first_tissue
+  y <- merged_data$median_CNA_score_second_tissue
+
+
+  # Définir le chemin du dossier spécifique au sample_name
+  output_dir <- paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/", sample_name, "/")
+  
+  # Vérifier si le dossier existe, sinon le créer
+  if (!dir.exists(output_dir)) {
+      dir.create(output_dir, recursive = TRUE)
+  }
+    
+for (bras in (results_list[[sample_name]]$Bras_chromosomique[results_list[[sample_name]]$p_value_adj < 0.05])) {
+  
+
+  
+# Vérifier que x et y ne sont pas vides ou entièrement NA
+if (length(x) > 0 && length(y) > 0 && any(!is.na(x)) && any(!is.na(y))) {
+    
+
+    
+    # Générer le chemin complet du fichier PDF
+    pdf_path <- paste0(output_dir, "bis_CorrPlot_", sample_name, "_", bras, ".pdf")
+    
+    # Ouvrir le fichier PDF
+    pdf(file = pdf_path, width = 10, height = 10)
+
+    
+    
+    # Déterminer les limites de l'axe en évitant les valeurs infinies
+    x_lim <- range(x, na.rm = TRUE)
+    y_lim <- range(y, na.rm = TRUE)
+
+    if (all(is.finite(x_lim)) && all(is.finite(y_lim))) {
+
+        
+        point_colors <- ifelse(merged_data$Bras_chromosomique == bras, "red", "black")
+        
+        # Générer le plot avec couleurs par chromosome
+        plot(x, y, 
+             xlab = paste0("CNA Score - ", comparaison_tissus_cnv[[sample_name]][1]), 
+             ylab = paste0("CNA Score - ", comparaison_tissus_cnv[[sample_name]][2]), 
+             main = paste0(sample_name, " - Correlation Plot - ", comparaison_tissus_cnv[[sample_name]][1], " vs ", comparaison_tissus_cnv[[sample_name]][2], 
+                           " \nPearson's Correlation: ", round(correlation_score, 2),
+                           " \nBras chromosomique: ", bras, " - FDR: ",
+                           results_list[[sample_name]]$p_value_adj[results_list[[sample_name]]$Bras_chromosomique == bras]),
+             
+             col = point_colors,  # Coloration selon le chromosome
+             pch = 19, 
+             cex = 1.5,  
+             xlim = x_lim + c(-0.1, 0.1), 
+             ylim = y_lim + c(-0.1, 0.1)
+        )
+
+        abline(a = 0, b = 1, col = "black", lwd = 2, lty = 1)
+        abline(lm(y ~ x), col = "blue", lwd = 2, lty = 2)
+
+        legend("topleft", 
+               # x = 0.4269, y = -0.379,
+         legend = c("y = x", "Régression linéaire"), 
+         col = c("black", "blue"), 
+         lty = c(1, 2), 
+         lwd = 2, 
+         title = "Droites")
+
+        
+        # Ajouter une légende pour les chromosomes
+        legend("bottomright", 
+               legend = c("Autres cytobandes", "Cytobandes du bras significatif"), 
+               col = c("black", "red"), 
+               pch = 19, 
+               title = "Cytobandes")
+
+    } else {
+        warning("⚠️ Impossible de tracer le plot : x ou y contient uniquement des valeurs infinies ou NA.")
+    }
+
+    # Fermer le fichier PDF
+    dev.off()
+
+    print(paste0("✅ Correlation plot pour ", sample_name, " terminé et sauvegardé !"))
+
+} else {
+    warning("⚠️ Pas assez de données valides pour générer le plot.")
+}
+  
+}
+
+  
+  # On incrémente l'index pour les échantillons suivants
+  i = i + 1
+  
+}
+```
 
 
 

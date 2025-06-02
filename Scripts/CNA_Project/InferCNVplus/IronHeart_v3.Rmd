@@ -244,6 +244,7 @@ for (sample_name in samples_names) {
 # InferCNVplus
 
 ```{r}
+samples_names <- c("MpBC1")
 for(sample_name in samples_names) {
   
   print(paste("Preprocessing InferCNVplus for", sample_name))
@@ -299,36 +300,398 @@ for(sample_name in samples_names) {
   
   # Sauvegarder l'objet
   saveRDS(cnv_obj, 
-          sprintf("/mnt/datadisk/Jordan/Data/CNA/cnv_obj_%s.rds", sample_name))
+          sprintf("/mnt/datadisk/Jordan/Data/CNA/cnv_obj_bis_%s.rds", sample_name))
   
   print(paste("✅ Objet sauvegardé pour", sample_name))
 
 
 
   # Encore du ménage ! Il faut de la place !
-  rm(list = c(sprintf("matrix_count_%s", sample_name),
-              sprintf("cnv_obj_%s", sample_name),
-              "cnv_obj") )
+  # rm(list = c(sprintf("matrix_count_%s", sample_name),
+              # sprintf("cnv_obj_%s", sample_name),
+              # "cnv_obj") )
   
-  print(paste("✅ Ménage finale effectué pour", sample_name))
+  # print(paste("✅ Ménage finale effectué pour", sample_name))
 }
+```
+Essaye le plotting
+
+```{r}
+# cnv_obj <- readRDS("/mnt/datadisk/Jordan/Data/CNA/cnv_obj_bis_MpBC1.rds")
+
+# Plotting InferCNVplus results
+# cnv_obj <- visualCNV(data = cnv_obj,
+#                      cutree_k = 1,
+#                      out_file = "plot_cnv.png")
+
+library(ComplexHeatmap)
+
+
+data <- cnv_obj
+assay <- "cnv_score_vis"
+ref_lab <- "Non tumoral cells (ref)"
+obs_lab <- "Tumoral cells (obs)"
+out_path <- "/mnt/datadisk/Jordan/Scripts/CNA_Project/InferCNVplus/"
+out_file <- "plot_cnv.png"
+
+
+plot_cnv_heatmap <- function(data, assay = "cnv_score_vis", ref_lab = "Non tumoral cells (ref)", obs_lab = "Tumoral cells (obs)",out_path, out_file = "plot_cnv.png") {
+  
+  
+# data processing -----------------
+logging::loginfo(":Data processing")
+ret_list <- data
+
+plot_data <- as.matrix(t(data[[assay]]))
+plot_data <- plot_data[1:5000, 1:5000]
+
+
+# plot ----------------------
+logging::loginfo(":Plot cnv")
+
+# set annotation column annotation: chromosome
+chr_order <- data$chr_order
+chr <- ifelse(chr_order %in% c(seq(1, 22, 2), "X"), "odd", "even")
+col_anno <- HeatmapAnnotation(
+    chr = chr, 
+    col = list(chr = c(odd = "gray60", even = "gray80")), 
+    show_legend = FALSE, 
+    show_annotation_name = TRUE
+)
+
+# row annotation: origin
+ref_obs <- as.character(data$reference_obs)
+if (length(ref_obs) == nrow(plot_data)){
+    ref_obs <- NULL
+}
+
+origin <- rep(obs_lab, nrow(plot_data))
+origin[which(rownames(plot_data) %in% ref_obs)] <- ref_lab
+row_anno <- rowAnnotation(
+    origin = origin, 
+    col = list(origin = c(
+      'Tumoral cells (obs)'='#FFFF00',
+      'Non tumoral cells (ref)'='#696969')), 
+    annotation_legend_param = list(
+      title = "Spot origin",
+        title_gp = gpar(fontsize = 12, fontface = 'bold'), 
+        labels_gp = gpar(fontsize = 11), 
+        legend_height = unit(4, "cm"), 
+        grid_width = unit(0.5, "cm")
+    ), 
+    show_legend = TRUE, 
+    show_annotation_name = FALSE
+)
+
+
+
+# legend parameters
+vis_bounds <- data[["parameter"]][["vis_bounds"]]
+limits <- c(min(vis_bounds), 0, max(vis_bounds))
+lg_param <- list(
+    title = 'CNA scores',
+    at = limits,
+    labels = limits,
+    title_gp = gpar(fontsize = 12, fontface = 'bold'),
+    labels_gp = gpar(fontsize = 11),
+    legend_height = unit(3, "cm"),
+    grid_width = unit(0.5, "cm"),
+    border = 'black'
+)
+
+# color scale
+colors <- circlize::colorRamp2(limits, c("blue", "white", "red"))
+
+# plot
+png(file.path(out_path, out_file), width = 9.5, height = 6, units = "in", res = 300)
+
+chr_order_sub <- data$chr_order[colnames(plot_data)]
+chr <- ifelse(chr_order_sub %in% c(seq(1, 22, 2), "X"), "odd", "even")
+
+col_anno <- HeatmapAnnotation(
+    chr = chr,
+    col = list(chr = c(odd = "gray60", even = "gray80")),
+    show_legend = FALSE,
+    show_annotation_name = TRUE
+)
+
+ht <- Heatmap(
+    plot_data,
+    name = "CNA score",
+    col = colors,
+    cluster_columns = FALSE,
+    cluster_rows = FALSE,
+    show_row_names = FALSE,
+    show_column_names = FALSE,
+    heatmap_legend_param = lg_param,
+    top_annotation = col_anno,
+    left_annotation = row_anno,
+    row_gap = unit(0, "mm"),
+    border = TRUE
+)
+
+
+
+draw(ht)
+
+# add chromosome labels
+chr_lab <- c()
+x_axis <- c()
+for (c in unique(chr_order)) {
+    perc <- length(which(chr_order == c)) / length(chr_order)
+    chr_lab <- c(chr_lab, ifelse(perc >= 0.02, c, "."))
+    x_axis <- c(x_axis, median(which(chr_order == c)) / length(chr_order))
+}
+
+decorate_annotation("chr", {
+    grid.text(chr_lab, x = unit(x_axis, "npc"), gp = gpar(fontsize = 10.5))
+})
+
+dev.off()
+
+return(ret_list)
+}
+
+res <- plot_cnv_heatmap(data = cnv_obj, out_path = out_path, out_file = out_file)
+
+```
+```{r}
+plot_cnv_heatmap <- function(data, assay = "cnv_score_vis", 
+                             ref_lab = "Non tumoral cells (ref)", 
+                             obs_lab = "Tumoral cells (obs)",
+                             out_path, 
+                             out_file = "plot_cnv_chat.png") {
+
+  logging::loginfo(":Data processing")
+  ret_list <- data
+  plot_data <- as.matrix(t(data[[assay]]))
+
+  # Annotation colonnes : chromosomes
+  chr_order_sub <- data$chr_order[colnames(data[[assay]])[top_cols]]
+  chr <- ifelse(chr_order_sub %in% c(seq(1, 22, 2), "X"), "odd", "even")
+  col_anno <- HeatmapAnnotation(
+    chr = chr,
+    col = list(chr = c(odd = "#d9d9d9", even = "#f0f0f0")),
+    show_legend = FALSE,
+    show_annotation_name = FALSE,
+    annotation_height = unit(0.3, "cm")
+  )
+
+  # Annotation lignes : cellules observées / référence
+  ref_obs <- as.character(data$reference_obs)
+  origin <- rep(obs_lab, nrow(plot_data))
+  origin[rownames(plot_data) %in% ref_obs] <- ref_lab
+  row_anno <- rowAnnotation(
+    origin = origin,
+    col = list(origin = c(
+      `Tumoral cells (obs)` = "#f4d03f", 
+      `Non tumoral cells (ref)` = "#7f8c8d"
+    )),
+    show_annotation_name = FALSE,
+    annotation_width = unit(0.4, "cm"),
+    annotation_legend_param = list(
+      title = "Cell origin",
+      title_gp = gpar(fontsize = 12, fontface = 'bold'),
+      labels_gp = gpar(fontsize = 11),
+      legend_height = unit(4, "cm"),
+      grid_width = unit(0.5, "cm")
+    )
+  )
+
+  # Couleurs CNA améliorées (neutre visible et extrêmes perceptibles)
+  vis_bounds <- data[["parameter"]][["vis_bounds"]]
+  limits <- c(min(vis_bounds), 0, max(vis_bounds))
+  colors <- circlize::colorRamp2(limits, c("#2166ac", "#f7f7f7", "#b2182b"))
+
+  lg_param <- list(
+    title = 'CNA score',
+    at = limits,
+    labels = limits,
+    title_gp = gpar(fontsize = 12, fontface = 'bold'),
+    labels_gp = gpar(fontsize = 11),
+    legend_height = unit(3, "cm"),
+    grid_width = unit(0.5, "cm"),
+    border = 'black'
+  )
+
+  logging::loginfo(":Plot CNV")
+
+  png(file.path(out_path, out_file), width = 10, height = 6, units = "in", res = 300)
+
+  ht <- Heatmap(
+    plot_data,
+    name = "CNA score",
+    col = colors,
+    cluster_columns = FALSE,
+    cluster_rows = FALSE,
+    show_row_names = FALSE,
+    show_column_names = FALSE,
+    heatmap_legend_param = lg_param,
+    top_annotation = col_anno,
+    left_annotation = row_anno,
+    border = TRUE,
+    row_title = NULL,
+    column_title = NULL,
+    row_gap = unit(0, "mm")
+  )
+
+  draw(ht, heatmap_legend_side = "right", annotation_legend_side = "right")
+
+  # Ajout des étiquettes de chromosomes
+  chr_lab <- c()
+  x_axis <- c()
+  for (c in unique(chr_order_sub)) {
+    idxs <- which(chr_order_sub == c)
+    perc <- length(idxs) / length(chr_order_sub)
+    chr_lab <- c(chr_lab, ifelse(perc >= 0.02, c, ""))
+    x_axis <- c(x_axis, mean(idxs) / length(chr_order_sub))
+  }
+
+  decorate_annotation("chr", {
+    grid.text(chr_lab, x = unit(x_axis, "npc"), gp = gpar(fontsize = 9.5))
+  })
+
+  dev.off()
+  return(ret_list)
+}
+
+res <- plot_cnv_heatmap(data = cnv_obj, out_path = out_path, out_file = out_file)
+
 ```
 
 
-Si on veut pas tout recalculer !
+
+
 
 ```{r}
-for (sample_name in samples_names) {
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+library(logging)
+
+# Paramètres d'entrée (exemple)
+data <- cnv_obj
+assay <- "cnv_score_vis"
+ref_lab <- "ref"
+obs_lab <- "obs"
+out_path <- "/mnt/datadisk/Jordan/Scripts/CNA_Project/InferCNVplus/"
+out_file <- "plot_cnv.png"
+clustering_method <- "median"
+dist_method <- "correlation"
+cutree_k <- 2
+plot_dend <- TRUE
+
+plot_cnv_heatmap <- function(data, assay = "cnv_score_vis", ref_lab = "ref", obs_lab = "obs",
+                             out_path, out_file = "plot_cnv.png",
+                             clustering_method = "median", dist_method = "correlation", cutree_k = 2) {
   
-  # Charger le RDS
-  cnv_obj <- readRDS(sprintf("/mnt/datadisk/Jordan/Data/CNA/cnv_obj_%s.rds", sample_name))
+  logging::loginfo(":Data processing")
+  ret_list <- data
+  ret_list[["cluster"]] <- list()
   
-  # Assigner l'objet
-  assign(sprintf("cnv_obj_%s", sample_name), cnv_obj)
+  plot_data <- as.matrix(t(data[[assay]]))
+  # plot_data <- plot_data[1:500, 1:500]
+  # Taille de l’échantillon (ajuste si nécessaire)
+  n <- 2500
   
-  print(paste("✅ Objet cnv_obj_", sample_name, " chargé et assigné", sep = ""))
+  # Vérifie que l’échantillon est possible
+  n_row <- nrow(plot_data)
+  n_col <- ncol(plot_data)
+  sel_row <- if (n_row > n) sample(n_row, n) else 1:n_row
+  sel_col <- if (n_col > n) sample(n_col, n) else 1:n_col
   
+  # Sous-échantillonnage aléatoire
+  plot_data <- plot_data[sel_row, sel_col]
+
+  
+  if (dist_method == "correlation") {
+    cor_mat <- cor(t(plot_data), method = "pearson")
+    dist_mat <- as.dist(1 - cor_mat)
+  } else {
+    dist_mat <- dist(plot_data, method = dist_method)
+  }
+  
+  hc <- hclust(dist_mat, method = clustering_method)
+  ret_list[["cluster"]][["hclust"]] <- hc
+  dend <- as.dendrogram(hc)
+  
+  if (is.numeric(cutree_k)) {
+    ret_list <- pruneCutree(ret_list, k = cutree_k, out_path = out_path, plot_dend = FALSE)
+    dend <- ret_list[["cluster"]][["dend"]]
+    ret_list[["cluster"]][["dend"]] <- NULL
+  }
+  
+  logging::loginfo(":Plot cnv")
+
+  # top annotation
+  chr_order <- data$chr_order[1:ncol(plot_data)]
+  chr <- ifelse(chr_order %in% c(seq(1, 22, 2), "X"), "odd", "even")
+  col_anno <- HeatmapAnnotation(chr = chr, 
+                                col = list(chr = c(odd = "gray60", even = "gray80")), 
+                                show_legend = FALSE, show_annotation_name = TRUE)
+  
+  # row annotation
+  ref_obs <- as.character(data$reference_obs)
+  if (length(ref_obs) == nrow(plot_data)) ref_obs <- NULL
+  origin <- rep(obs_lab, nrow(plot_data))
+  origin[which(rownames(plot_data) %in% ref_obs)] <- ref_lab
+  
+  row_anno <- rowAnnotation(origin=origin,
+                            col = list(origin = c('obs'='#FFFF00', 'ref'='#696969')),
+                            annotation_legend_param = list(title_gp=gpar(fontsize=12, fontface='bold'),
+                                                           labels_gp=gpar(fontsize=11),
+                                                           legend_height = unit(4, "cm"),
+                                                           grid_width=unit(0.5, "cm")),
+                            show_legend=TRUE, show_annotation_name=FALSE)
+  
+  vis_bounds <- data[["parameter"]][["vis_bounds"]]
+  limits <- c(min(vis_bounds), 0, max(vis_bounds))
+  lg_param <- list(title='cnv',
+                   at=limits,
+                   labels=limits,
+                   title_gp=gpar(fontsize=12, fontface='bold'),
+                   labels_gp=gpar(fontsize=11),
+                   legend_height = unit(3, "cm"),
+                   grid_width=unit(0.5, "cm"),
+                   border='black')
+  
+  png(file.path(out_path, out_file), width = 9.5, height = 6, units = "in", res = 300)
+  
+  ht <- Heatmap(plot_data,
+                name = "cnv",
+                col = colors,
+                cluster_columns = FALSE,
+                cluster_rows = dend,
+                show_row_names = FALSE,
+                show_column_names = FALSE,
+                row_split = cutree_k,
+                heatmap_legend_param = lg_param,
+                top_annotation = col_anno,
+                left_annotation = row_anno,
+                row_dend_width = unit(0.15, "npc"),
+                row_gap = unit(0, "mm"),
+                border=TRUE)
+  draw(ht)
+  
+  chr_lab <- c()
+  x_axis <- c()
+  for (c in unique(chr_order)) {
+    perc <- length(which(chr_order == c))/length(chr_order)
+    chr_lab <- c(chr_lab, ifelse(perc >= 0.02, c, "."))
+    x_axis <- c(x_axis, median(which(chr_order == c))/length(chr_order))
+  }
+
+  decorate_annotation("chr", {
+    grid.text(chr_lab, x = unit(x_axis, "npc"), gp=gpar(fontsize=10.5))
+  })
+  
+  dev.off()
+  return(ret_list)
 }
+
+res <- plot_cnv_heatmap(data = cnv_obj, out_path = out_path, out_file = out_file,
+                        clustering_method = clustering_method, dist_method = dist_method, cutree_k = cutree_k)
+
 ```
 
 # Downstream analysis
@@ -750,7 +1113,7 @@ df_list <- readRDS("/mnt/datadisk/Jordan/Data/CNA/df_MpBCX_annot.rds")
 
 ```
 
-# Plotting
+# Ploting
 
 
 ```{r}
@@ -2516,32 +2879,177 @@ for (sample_name in samples_names) {
   tissu1 <- comparaison_tissus_cnv[[sample_name]][1]
   tissu2 <- comparaison_tissus_cnv[[sample_name]][2]
   
-  couleurs_tissus <- setNames(c("orange", "green"), c(tissu1, tissu2))
+  couleurs_tissus <- setNames(c("purple", "green3"), c(tissu1, tissu2))
+
+  # Zones de fond fictives pour la légende
+  zones_cna <- tibble(
+    xmin = c(-Inf, -Inf),
+    xmax = c(Inf, Inf),
+    ymin = c(0, -Inf),
+    ymax = c(Inf, 0),
+    Type = c("Amplification", "Deletion")
+  )
   
-  plot <- ggplot(df_combined, aes(x = Bras_chromosomique, y = pct_median_CNA_score_norm_to1, fill = Tissu)) +
-    geom_col(position = position_dodge(width = 0.8), aes(group = Tissu), width = 0.7) +
-    scale_fill_manual(values = couleurs_tissus) +
+  plot <- 
+    ggplot(df_combined, aes(x = Bras_chromosomique, y = pct_median_CNA_score_norm_to1, group = Tissu, color = Tissu)) +
+    
+    # Zones colorées avec légende
+    geom_rect(data = zones_cna, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = Type),
+              inherit.aes = FALSE, alpha = 0.2, show.legend = TRUE) +
+  
+    # Les courbes en escalier
+    geom_step(size = 0.7, linetype = "dashed") +
+    geom_hline(yintercept = 0, color = "black", size = 0.3) +
+  
+    # Couleurs des tissus
+    scale_color_manual(values = couleurs_tissus) +
+  
+    # Légende pour Amplification / Deletion
+    scale_fill_manual(values = c("Amplification" = "red", "Deletion" = "blue"),
+                      name = "CNA region") +
+  
+    labs(title = paste0("Scores CNA normalisés par bras chromosomique - Patient ", sample_name),
+         x = "Chromosomal arms",
+         y = "Normalized CNA score",
+         color = "Tissue") +
+    
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(size = 6, angle = 45, hjust = 1),
+      axis.text.y = element_text(size = 8),
+      axis.title = element_text(size = 10, face = "bold"),
+      plot.title = element_text(size = 12, hjust = 0.5, face = "bold"),
+      panel.grid.minor = element_blank()
+    )
+  
+  print(plot)
+  
+  ggsave(plot, filename = paste0(output_dir, "Barplot_Line_norm_Eureka_Bras_chrom_", sample_name, ".png"), width = 10, height = 5)
+
+  
+#   plot <- ggplot(df_combined, aes(x = Bras_chromosomique, y = pct_median_CNA_score_norm_to1, fill = Tissu)) +
+#     geom_col(position = position_dodge(width = 0.8), aes(group = Tissu), width = 0.7) +
+#     scale_fill_manual(values = couleurs_tissus) +
+#     labs(title = paste0("Graphique des scores CNA normalisés par bras chromosomique du patient ", sample_name),
+#          x = "Bras chromosomiques",
+#          y = "Scores CNA normalisés (%)") +
+#     theme_bw() +
+#     theme(axis.text.x = element_text(size = 5, angle = 90, vjust = 0.5, hjust = 1),
+#           axis.text.y = element_text(size = 8),
+#           axis.title = element_text(size = 10),
+#           plot.title = element_text(hjust = 0.5))
+# 
+#   
+#   
+#   plot <- ggplot(df_combined, aes(x = Bras_chromosomique, y = pct_median_CNA_score_norm_to1, fill = Tissu)) +
+#     geom_col(position = position_dodge(width = 0.8), aes(group = Tissu), width = 0.7) +
+#     scale_fill_manual(values = couleurs_tissus) +
+#     labs(title = paste0("Graphique des scores CNA normalisés par bras chromosomique du patient ", sample_name),
+#          x = "Bras chromosomiques",
+#          y = "Scores CNA normalisés (%)") +
+#     theme_bw() +
+#     theme(axis.text.x = element_text(size = 5, angle = 90, vjust = 0.5, hjust = 1),
+#           axis.text.y = element_text(size = 8),
+#           axis.title = element_text(size = 10),
+#           plot.title = element_text(hjust = 0.5))
+#     
+#   print(plot)
+#   
+#   ggsave(plot, filename = paste0(output_dir, "Barplot_Line_norm_Eureka_", sample_name, ".png"), width = 10, height = 5)
+#   
+#   print(paste0("✅ Plot pour ", sample_name, " terminé !"))
+# 
+#   
+# 
+# 
+# plot <- 
+#   ggplot(df_combined, aes(x = Bras_chromosomique, y = pct_median_CNA_score_norm_to1, group = Tissu, color = Tissu)) +
+#   geom_step(size = 0.6, linetype = "dashed") +
+#   # geom_step(size = 0.6, linetype = "solid") +
+#   geom_hline(yintercept = 0, color = "black", size = 0.3) +
+#   scale_color_manual(values = couleurs_tissus) +
+#   labs(title = paste0("Scores CNA normalisés par bras chromosomique - Patient ", sample_name),
+#        x = "Bras chromosomiques",
+#        y = "Score CNA normalisé") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(size = 6, angle = 45, hjust = 1),
+#         axis.text.y = element_text(size = 8),
+#         axis.title = element_text(size = 10, face = "bold"),
+#         plot.title = element_text(size = 12, hjust = 0.5, face = "bold"),
+#         panel.grid.minor = element_blank())
+# 
+# print(plot)
+
+
+
+
+
+
+
+  # Transformation des données pour simuler un dataframe similaire à 'new_steps'
+  df_combined_transformed <- df_combined %>%
+    mutate(type = ifelse(Tissu == tissu1, "type_1", "type_2"),  # Exemple de types basés sur la variable 'Tissu'
+           cdf = pct_median_CNA_score_norm_to1) %>%
+    select(Bras_chromosomique, cdf, type) %>%
+    arrange(Bras_chromosomique)
+
+  # Création d'un dataframe pour "type" et "cdf" et ajout d'un 'lag' sur 'cdf' pour créer des segments
+  df_final <- df_combined_transformed %>%
+    mutate(cdf_lag = lag(cdf)) %>%
+    drop_na() %>%
+    arrange(Bras_chromosomique, desc(type))
+  
+
+  # Création du plot avec ggplot2
+  
+  plot <- ggplot(df_final) +
+    
+    geom_hline(yintercept = 0, color = "black", size = 0.3) +
+
+    geom_point(aes(x = Bras_chromosomique, y = cdf, fill = type), shape = 21, size = 3) +  # Points
+    scale_fill_manual(values = c("type_1" = "purple", "type_2" = "green3")) +  # Choisir les couleurs selon le type
+    geom_segment(aes(x = lag(Bras_chromosomique), y = lag(cdf),
+                     xend = Bras_chromosomique, yend = cdf,
+                     lty = type)) +  # Segment reliant les points avec un type de ligne différent
+    scale_linetype_manual(values = c("type_1" = "solid", "type_2" = "dashed")) +  # Choisir le style des lignes selon le type
     labs(title = paste0("Graphique des scores CNA normalisés par bras chromosomique du patient ", sample_name),
          x = "Bras chromosomiques",
-         y = "Scores CNA normalisés (%)") +
+         y = "Scores CNA normalisés") +
     theme_bw() +
     theme(axis.text.x = element_text(size = 5, angle = 90, vjust = 0.5, hjust = 1),
           axis.text.y = element_text(size = 8),
           axis.title = element_text(size = 10),
           plot.title = element_text(hjust = 0.5))
 
+    # Zones colorées avec légende
+    # geom_rect(data = zones_cna, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = Type),
+    #           inherit.aes = FALSE, alpha = 0.2, show.legend = TRUE) +
+    # Légende pour Amplification / Deletion
+    # scale_fill_manual(values = c("Amplification" = "red", "Deletion" = "blue"),
+    #                   name = "CNA region")
+
   print(plot)
-  
-  ggsave(plot, filename = paste0(output_dir, "Barplot_norm_Eureka_", sample_name, ".png"), width = 10, height = 5)
-  
-  print(paste0("✅ Plot pour ", sample_name, " terminé !"))
 
   
+  ggsave(plot, filename = paste0(output_dir, "Barplot_LineDiff_norm_Eureka_Bras_chrom_", sample_name, ".png"), width = 10, height = 5)
   
   
-  
-  
-  
+  # Version du ShiftPlot sans escalier
+
+  # plot <- ggplot(df_combined, aes(x = Bras_chromosomique, y = pct_median_CNA_score_norm_to1, group = Tissu, color = Tissu)) +
+  #   geom_line(size = 1.2) +  # Crée une ligne
+  #   scale_color_manual(values = couleurs_tissus) +
+  #   labs(title = paste0("Graphique des scores CNA normalisés par bras chromosomique du patient ", sample_name),
+  #        x = "Bras chromosomiques",
+  #        y = "Scores CNA normalisés (%)") +
+  #   theme_bw() +
+  #   theme(axis.text.x = element_text(size = 5, angle = 90, vjust = 0.5, hjust = 1),
+  #         axis.text.y = element_text(size = 8),
+  #         axis.title = element_text(size = 10),
+  #         plot.title = element_text(hjust = 0.5))
+  # 
+  # print(plot)
+
   
   
   
@@ -2567,7 +3075,7 @@ for (sample_name in samples_names) {
 ```
 
 
-Tests stats
+Tests stats et plots
 
 ```{r}
 # Ordre des comparaisons
@@ -2605,7 +3113,7 @@ for (sample_name in samples_names) {
     next  # Passer à l'itération suivante si l'échantillon est MpBC6 ou MpBC7 (car échantillons purs)
   }
   
-  print(paste0("🔍  Test sats pour ", sample_name))
+  print(paste0("🔍  Test sats et plots pour ", sample_name))
   
   
   # Chemin du dossier
@@ -2752,6 +3260,65 @@ for (sample_name in samples_names) {
       df_combined$pct_median_CNA_score_norm_to1[i] <- df_combined$pct_median_CNA_score_norm[i] / abs(min(df_combined$pct_median_CNA_score_norm, na.rm = TRUE))
     }
   }
+  
+  
+  
+  ############################# Plot des scores normalisés = ShiftPlot #######################
+  
+  tissu1 <- comparaison_tissus_cnv[[sample_name]][1]
+  tissu2 <- comparaison_tissus_cnv[[sample_name]][2]
+  
+  couleurs_tissus <- setNames(c("purple", "green3"), c(tissu1, tissu2))
+
+  # Zones de fond fictives pour la légende
+  zones_cna <- tibble(
+    xmin = c(-Inf, -Inf),
+    xmax = c(Inf, Inf),
+    ymin = c(0, -Inf),
+    ymax = c(Inf, 0),
+    Type = c("Amplification", "Deletion")
+  )
+  
+  plot <- 
+    ggplot(df_combined, aes(x = Loc, y = pct_median_CNA_score_norm_to1, group = Tissu, color = Tissu)) +
+    
+    # Zones colorées avec légende
+    geom_rect(data = zones_cna, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = Type),
+              inherit.aes = FALSE, alpha = 0.2, show.legend = TRUE) +
+  
+    # Les courbes en escalier
+    geom_step(size = 0.7, linetype = "solid") +
+    geom_hline(yintercept = 0, color = "black", size = 0.3) +
+  
+    # Couleurs des tissus
+    scale_color_manual(values = couleurs_tissus) +
+  
+    # Légende pour Amplification / Deletion
+    scale_fill_manual(values = c("Amplification" = "red", "Deletion" = "blue"),
+                      name = "CNA region") +
+  
+    labs(title = paste0("Normalized CNA Scores CNA normalisés by cytobands - Patient ", sample_name),
+         x = "Cytobands",
+         y = "Normalized CNA score",
+         color = "Tissue") +
+    
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(size = 1, angle = 45, hjust = 1),
+      axis.text.y = element_text(size = 8),
+      axis.title = element_text(size = 10, face = "bold"),
+      plot.title = element_text(size = 12, hjust = 0.5, face = "bold"),
+      panel.grid.minor = element_blank()
+    )
+  
+  print(plot)
+  
+  ggsave(plot, filename = paste0(output_dir, "Barplot_Line_norm_Eureka_cytobands_", sample_name, ".png"), width = 10, height = 5)
+  
+  
+  
+  
+  
   
   
   
@@ -2928,6 +3495,8 @@ for (sample_name in samples_names) {
   ####################### Test statistique ####################### 
   ################################################################
   
+  seuil <- 0.001 # On met un seuil à 0.1% pour être bien stringent
+  
   # 1vsAll
   # Comparer la distribution des cytobandes d'un bras chromosomique à la distribution de toutes les autres cytobandes #
 
@@ -2977,8 +3546,8 @@ for (sample_name in samples_names) {
                p_value = p_values,
                p_value_adj_BH = p_values_adj_BH,
                p_value_adj_Bonferroni = p_values_adj_Bonferroni) # %>%
-    # FIltrer les p_val_adj > 0.05
-    # filter(p_value_adj < 0.05)
+    # FIltrer les p_val_adj > seuil
+    # filter(p_value_adj < seuil)
   
   df_p_values_1vsAll <- bind_rows(df_p_values_1vsAll, df_p_values_patient)
     
@@ -3030,8 +3599,8 @@ for (sample_name in samples_names) {
                p_value2 = p_values2,
                p_value_adj2_BH = p_values_adj2_BH,
                p_values_adj2_Bonferroni = p_values_adj2_Bonferroni) # %>% 
-    # FIltrer les p_val_adj > 0.05
-    # filter(p_value_adj2 < 0.05)
+    # FIltrer les p_val_adj > seuil
+    # filter(p_value_adj2 < seuil)
   
   df_p_values_diff0 <- bind_rows(df_p_values_diff0, df_p_values_patient2)
     
@@ -3055,6 +3624,50 @@ df_p_values <-
 ```
 
 ```{r}
+# Nettoyage des NA
+pvals <- df_p_values$p_value_adj_Bonferroni_1vsAll
+pvals <- pvals[!is.na(pvals)]
+
+# Histogramme + ligne de seuil
+
+hist(pvals,
+     breaks = 500000,
+     main = "Distribution des p-values ajustées (Bonferroni)",
+     xlab = "p-value ajustée",
+     ylab = "Fréquence",
+     xlim = c(0, 1.0e-04),
+     ylim = c(0, 20),
+     col = "skyblue",
+     border = "black")
+
+text(x = seuil, y = par("usr")[4]*0.9, labels = paste0("Seuil = ", seuil), col = "red", pos = 4)
+abline(v = seuil, col = "red", lwd = 2, lty = 2)
+abline(v = 0.0001, col = "blue", lwd = 2, lty = 2)
+
+
+hist_p_val
+
+ggsave(hist_p_val, filename = paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/Pval_histogram.png"), width = 10, height = 5)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Faire un plot pour chaque patient des bras significatifs
 for (sample_name in samples_names) {
   
@@ -3078,11 +3691,11 @@ for (sample_name in samples_names) {
   df_patient <- df_p_values %>% 
     filter(Patient == sample_name) %>% 
     mutate(Bras_chromosomique = factor(Bras_chromosomique, levels = mixedsort(unique(Bras_chromosomique)))) %>% 
-    arrange(p_value_adj_BH_1vsAll)
+    arrange(p_value_adj_Bonferroni_1vsAll)
   
-  barplot_log10_p <- ggplot(df_patient, aes(x = Bras_chromosomique, y = -log10(p_value_adj_BH_1vsAll))) +
+  barplot_log10_p <- ggplot(df_patient, aes(x = Bras_chromosomique, y = -log10(p_value_adj_Bonferroni_1vsAll))) +
     geom_bar(stat = "identity", aes(fill = Bras_chromosomique)) +
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") + 
+    geom_hline(yintercept = -log10(seuil), linetype = "dashed", color = "red") + 
     labs(title = paste0("Bras chromosomique significatif dans ", sample_name),
          x = "Bras chromosomique",
          y = "-log10(p-value_adj)") +
@@ -3094,7 +3707,7 @@ for (sample_name in samples_names) {
   # ggsave(barplot_log10_p, filename = paste0(output_dir, "Barplot_significatif_", sample_name, ".png"), width = 10, height = 5)
   
   
-  ggsave(barplot_log10_p, filename = paste0(output_dir, "/Barplot_significatif_", sample_name, ".png"), width = 10, height = 5)
+  ggsave(barplot_log10_p, filename = paste0(output_dir, "/Barplot_significatif_Bonferroni_0.001_", sample_name, ".png"), width = 10, height = 5)
   print(paste0("✅ P_val_Barplot pour ", sample_name, " terminé !"))
 }
 ```
@@ -3102,59 +3715,59 @@ for (sample_name in samples_names) {
 
 
 ```{r}
-# Exemple de structure
-# Patient | Bras_chromosomique | p_adj
-
+# # Exemple de structure
+# # Patient | Bras_chromosomique | p_adj
+# 
+# # df_significance <- df_p_values %>%
+# #   mutate(is_significant = case_when(
+# #     p_value_adj_BH_1vsAll < 0.05 ~ "Significant",
+# #     TRUE ~ "Not Significant"
+# #   )) 
+# 
+# print(paste0("🔍  On fait le barplot des p-val_adj pour tous les patients"))
+# 
+# 
 # df_significance <- df_p_values %>%
-#   mutate(is_significant = case_when(
-#     p_value_adj_BH_1vsAll < 0.05 ~ "Significant",
-#     TRUE ~ "Not Significant"
-#   )) 
-
-print(paste0("🔍  On fait le barplot des p-val_adj pour tous les patients"))
-
-
-df_significance <- df_p_values %>%
-    mutate(is_significant = p_value_adj_BH_1vsAll < 0.05)
-
-bras_summary <- df_significance %>%
-  group_by(Bras_chromosomique) %>%
-  summarise(nb_significatifs = sum(is_significant),
-            total_patients = n()) %>% 
-  filter(!is.na(nb_significatifs))
-
-bras_summary <- bras_summary %>%
-  rowwise() %>%
-  mutate(p_value_binomtest = binom.test(nb_significatifs,
-                                        total_patients,
-                                        p = 0.05,
-                                        alternative = "greater")$p.value)
-
-bras_summary <- bras_summary %>%
-  mutate(p_value_adj = p.adjust(p_value_binomtest, method = "BH"),
-         log10_p_value_adj = -log10(p_value_adj))
-
-
-barplot_log10_p <- ggplot(bras_summary, aes(x = Bras_chromosomique, y = log10_p_value_adj)) +
-  geom_bar(stat = "identity", aes(fill = Bras_chromosomique)) +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") + 
-  labs(title = "Bras chromosomique significatif dans + de patients que ce qu'on attend par hasard (seuil 5%)",
-       x = "Bras chromosomique",
-       y = "-log10(p-value_adj)") +
-  theme_bw() +
-  theme(axis.text.x = element_text(size = 7, angle = 90, vjust = 0.5, hjust = 1),
-        plot.title = element_text(hjust = 0.5))
-
-print(barplot_log10_p)
-  
-# Chemin du dossier
-output_dir <- paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/Pval_barplot/")
-
-# Vérifier si le dossier existe, sinon le créer
-if (!dir.exists(output_dir)) {
-    dir.create(output_dir, recursive = TRUE) }
-
-ggsave(barplot_log10_p, filename = paste0(output_dir, "Barplot_significatif_1vsAll.png"), width = 10, height = 5)
+#     mutate(is_significant = p_value_adj_BH_1vsAll < 0.05)
+# 
+# bras_summary <- df_significance %>%
+#   group_by(Bras_chromosomique) %>%
+#   summarise(nb_significatifs = sum(is_significant),
+#             total_patients = n()) %>% 
+#   filter(!is.na(nb_significatifs))
+# 
+# bras_summary <- bras_summary %>%
+#   rowwise() %>%
+#   mutate(p_value_binomtest = binom.test(nb_significatifs,
+#                                         total_patients,
+#                                         p = 0.05,
+#                                         alternative = "greater")$p.value)
+# 
+# bras_summary <- bras_summary %>%
+#   mutate(p_value_adj = p.adjust(p_value_binomtest, method = "BH"),
+#          log10_p_value_adj = -log10(p_value_adj))
+# 
+# 
+# barplot_log10_p <- ggplot(bras_summary, aes(x = Bras_chromosomique, y = log10_p_value_adj)) +
+#   geom_bar(stat = "identity", aes(fill = Bras_chromosomique)) +
+#   geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") + 
+#   labs(title = "Bras chromosomique significatif dans + de patients que ce qu'on attend par hasard (seuil 5%)",
+#        x = "Bras chromosomique",
+#        y = "-log10(p-value_adj)") +
+#   theme_bw() +
+#   theme(axis.text.x = element_text(size = 7, angle = 90, vjust = 0.5, hjust = 1),
+#         plot.title = element_text(hjust = 0.5))
+# 
+# print(barplot_log10_p)
+#   
+# # Chemin du dossier
+# output_dir <- paste0("/mnt/datadisk/Jordan/Results/CNA/InferCNVPlus/Pval_barplot/")
+# 
+# # Vérifier si le dossier existe, sinon le créer
+# if (!dir.exists(output_dir)) {
+#     dir.create(output_dir, recursive = TRUE) }
+# 
+# ggsave(barplot_log10_p, filename = paste0(output_dir, "Barplot_significatif_1vsAll.png"), width = 10, height = 5)
 
 ```
 

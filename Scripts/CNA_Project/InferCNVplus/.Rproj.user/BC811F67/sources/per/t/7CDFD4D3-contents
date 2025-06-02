@@ -1,0 +1,1202 @@
+---
+title: "Untitled"
+author: "ines kardous"
+date: '2024-04-16'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+**Study** :  Transcriptomique spatiale et transdifférenciation dans les tumeurs du  sein
+
+**Author** : Inès Kardous, Intern at the CRCL from feb to aug 2024, supervised 
+          by Mr Pierre Martinez
+
+**Date** : 04/06/2024 
+
+**Data** : Spatial transcriptomics data as well as annotation ones can be found on 
+each patient subfolder following this path :
+/home/bioinfo/gnomic/0_RAWDATA/Mp_BC<> , <> : from 1 to 8 (8 patients)
+ 
+Spatial transcriptomics data was generated with the 10xGenomics Visium technology
+As for the annotations, they were provided by a pathologist.
+
+Spatial transcriptomics files used are on .h5 format, the annotation files are 
+.csv ones
+
+As a reference genome, grCH38 released in 2022 is used. It can be downloaded with 
+the following link : 
+https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/cytoBand.txt.gz
+
+This script is aimed to recap the studies done on the data : 
+
+- Average CNA scores per cell type on each cytoband => **Heatmap**
+The goal is to study the differences in expression between the cellular compartments 
+and try to unravel the genetic reasons behind the particular resistance of the mesenchymal tumors.
+We want to determine visually with a heatmap somatic changes to chromosome structure 
+resulting in gains or losses in copies of DNA sections. 
+
+- Distribution of CNA difference between compartments (violin plots)
+
+- Z-scores : detect outliers in terms of CNA scores (Heatmap)
+
+# Librairies 
+
+```{r echo=T, results='hide'}
+library(Seurat)
+library(hdf5r)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(gplots)
+library(matrixStats)
+library(ggpubr)
+library(infercnvPlus)
+```
+
+# InfercnvPlus - CNA scores 
+
+## Preparation of the data
+
+```{r echo=FALSE, results='hide'}
+# Set working directory + read Visium files + annotations -------------------
+
+p <- seq(1,8)
+
+for ( i in p ){
+  
+  setwd(sprintf("./../0_RAW_DATA/Mp_BC%s", i))
+  
+  # Visium files --------------------------------------------------------------
+  
+  assign(sprintf("matrix_%s", i),
+         Load10X_Spatial("./", "/filtered_feature_bc_matrix.h5"))                      
+  
+  # Import seurat object and convert it to a matrix for inferCNV
+  assign(sprintf("expr_tr_%s", i),
+         importSrat(eval(str2expression(sprintf("matrix_%s",i))),
+                    slot = "counts", 
+                    assay = "Spatial", 
+                    log2tpm_tr = TRUE))
+  
+  
+  # Add a prefix to barcodes in order to distinguish between patients data ----
+  
+  assign(sprintf("expr_tr_%s", i), 
+         as.data.frame(eval(str2expression(sprintf("expr_tr_%s",i)))) %>% 
+           rename_with(~ paste0(sprintf("MpBC%s-",i), .)))
+  
+  
+  # from counts to transcripts per million -------------------------------------
+  
+  assign(sprintf("expr_tr_%s",i), 
+         umi_to_log2tpm(eval(str2expression(sprintf("expr_tr_%s",i)))))
+  
+  
+  # Annotation files ----------------------------------------------------------
+  
+  ref <- read.csv(sprintf("MpBC%s_annotations.csv", i) , 
+                                     header = TRUE, 
+                                     sep = ",", 
+                                     stringsAsFactors = TRUE)
+  
+  
+  # change column name to "Annotations" ----------------------------------------
+  
+  colnames(ref)[2] <- "Annotations"
+  
+  
+  # Retrieve cell types names --------------------------------------------------
+  
+  assign(sprintf("cells%s", i), unique( ref$Annotations))
+  
+  # change the type of the column Annotation in order to have the possibility 
+  # to change its values----
+  
+  ref$Annotations <- as.character(ref$Annotations)
+  
+  # Add a prefix to barcodes in the ref dataframes ---------------------------
+  
+  ref <- ref %>% transform(Barcode = paste(sprintf("MpBC%s-", i), Barcode, sep = ""))
+  assign(sprintf("ref%s", i), ref)
+  
+  setwd("./..")
+}
+```
+
+Look at an example of the variables created : 
+```{r}
+print(head(ref1))
+```
+
+```{r}
+print(cells1)
+```
+
+expr_tr<> => counts matrices 
+
+## All patients cell types annotations (vector)
+
+```{r}
+cells_types_pooled <- c()
+
+for (i in p){
+  cells_types_pooled <- append(cells_types_pooled, 
+                              as.character(eval(
+                              str2expression(sprintf("cells%s", i)))))}
+```
+
+
+Here is are all the possible annotations : 
+```{r}
+print(cells_types_pooled)
+```
+
+## Annotations reference table - _All patients_
+
+For each patient the CNA scores are computed using as a reference the cells annotated as : 
+blood, non tumoral fibrous tissue, immune cells, normal fibrous tissue, normal fibrous stroma.
+The aim here is to retrieve the cells' data corresponding to our chosen reference cells.
+Since some patients do not have normal cells to take as reference, we decided that
+we would include other patients cells as references.
+
+```{r}
+## create a table containing ALL cells of all patients
+all_cells <- ref1
+
+for(i in 2:8){
+  all_cells<- rbind(all_cells, eval(str2expression((sprintf("ref%s", i)))))
+}
+
+# retrieve reference cells in the variable "reference"
+
+reference <- all_cells[c(which(all_cells$Annotations == cells_types_pooled[5] | 
+                              all_cells$Annotations == cells_types_pooled[6] |
+                              all_cells$Annotations == cells_types_pooled[9] |
+                              all_cells$Annotations == cells_types_pooled[10] |
+                              all_cells$Annotations == cells_types_pooled[20] |  
+                              all_cells$Annotations == cells_types_pooled[25] |
+                            all_cells$Annotations == cells_types_pooled[29])),]
+```
+
+```{r}
+print(head(reference))
+```
+
+Retrieve the barcodes of our reference cells:
+
+```{r}
+barcodes <- as.vector(reference$Barcode)
+```
+
+```{r}
+print(head(barcodes))
+```
+
+## Annotations reference tables - _per patient_
+
+```{r}
+for(i in p){
+  ## remove the cells(rows) that we will not use -------------------------------
+  
+  assign(sprintf("ref%s", i),
+         eval(str2expression(sprintf("ref%s", i))) %>% 
+           filter(!(Annotations == cells_types_pooled[1] |
+                    Annotations == cells_types_pooled[4] |
+                    Annotations == cells_types_pooled[12] |
+                    Annotations == cells_types_pooled[26] |
+                    Annotations == cells_types_pooled[28] |
+                    Annotations == cells_types_pooled[32])))
+  
+  
+  ## Replace all the annotations of epithelial cell types by "Epithelial" ------
+  
+  assign(sprintf("ref%s", i),
+         eval(str2expression(sprintf("ref%s", i))) %>% 
+           mutate(Annotations = replace(Annotations, 
+                                        Annotations == cells_types_pooled[2] | 
+                                        Annotations == cells_types_pooled[22], 
+                                        "Epithelial")))
+}
+```
+
+```{r}
+print(head(ref1))
+```
+
+Retrieve unwanted cells such as necrosis or adipose cells...
+
+```{r}
+# 7/ Retrieve barcodes of the unwanted annotations
+unwanted <- as.vector(all_cells$Barcode[c(which(
+                              all_cells$Annotations == cells_types_pooled[1] | 
+                              all_cells$Annotations == cells_types_pooled[4] |
+                              all_cells$Annotations == cells_types_pooled[12] |
+                              all_cells$Annotations == cells_types_pooled[19] |
+                              all_cells$Annotations == cells_types_pooled[26] |
+                              all_cells$Annotations == cells_types_pooled[28] |
+                            all_cells$Annotations == cells_types_pooled[32] ))])
+```
+
+```{r}
+print(head(unwanted))
+```
+
+Remove the unwanted columns from expr_tr matrices 
+```{r}
+for (i in p){
+  unwanted_col <- intersect(colnames(eval(
+  str2expression(sprintf("expr_tr_%s",i)))),unwanted)
+  
+  if (length(unwanted_col) != 0){
+    
+    assign(sprintf("expr_tr_%s",i), 
+          as.data.frame(eval(
+          str2expression(
+          sprintf("expr_tr_%s",i))))[, -which(colnames(
+          eval(str2expression(sprintf("expr_tr_%s",i)))) %in% unwanted_col)])
+  }
+}
+
+# Create expr_total intermediate variable containing data of all patients 
+
+expr_total <- cbind(expr_tr_1, expr_tr_2, expr_tr_3, expr_tr_4, 
+                    expr_tr_5,expr_tr_6, expr_tr_7, expr_tr_8)
+```
+
+Add reference cells to each expr_tr matrix - per patient 
+
+Some patients do not have reference cell types.
+Hence, we decided to retrieve all the reference cells from all patients data 
+and add them to each patient's matrix. 
+
+```{r}
+# Add reference cells to each expr_tr matrix
+
+for(i in p){
+  
+  # to avoid including twice a barcode in a matrix use setdiff
+  ref_cells <- setdiff(barcodes, 
+                       colnames(eval(str2expression(sprintf("expr_tr_%s",i)))))
+  
+  ref_mtx <- expr_total[,ref_cells]
+  
+  assign(sprintf("expr_tr_%s",i),
+         cbind(eval(str2expression(sprintf("expr_tr_%s",i))),ref_mtx))
+  
+  rm(ref_cells, ref_mtx)
+}
+```
+
+### Compute CNA scores for each patient 
+
+```{r echo=T, results='hide'}
+for(i in p){
+  ## Set working directory so that the output is saved on the patient folder 
+  setwd(sprintf("./../0_RAW_DATA/Mp_BC%s",i))
+  
+  # compute CNA scores
+  assign(sprintf("cnv_obj_%s", i),inferCNV(data = eval(
+                                str2expression(sprintf("expr_tr_%s",i))),
+                                gene_pos = genomic_pos,
+                                cutoff = 0.1, # 0.1 for 10x-genomics
+                                reference_obs = barcodes,
+                                window_size = 101,
+                                out_path = "output_dir", 
+                                noise_filter = NULL,
+                                vis_bounds = "-1,1"))
+  setwd("./..")
+}
+```
+
+
+### Reference cytobands file 
+
+```{r echo=FALSE, results='hide'}
+# Human reference genome selected : grCH38 2022 --------------------------------
+
+# https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/cytoBand.txt.gz
+
+setwd("./../1_REF_DATA/")
+
+cytobands <- read.csv("cytoBand.txt", 
+                      sep = "",
+                      header = FALSE,
+                      stringsAsFactors = TRUE )
+
+## remove abnormal choromosomes ------------------------------------------------
+
+cytobands <- cytobands[!grepl("_", cytobands$V1, fixed = TRUE),]
+cytobands <- cytobands[!grepl("chrM", cytobands$V1, fixed = TRUE),]
+cytobands$V1 <- str_remove_all(cytobands$V1, "chr") 
+
+
+## replace X and Y chromosomes by numbers --------------------------------------
+
+cytobands$V1[cytobands$V1 == "X"] <- "23"
+cytobands$V1[cytobands$V1 == "Y"] <- "24"
+
+
+## change type of the chromosomes from strings to integers----------------------
+
+cytobands$V1 <- lapply(cytobands$V1, strtoi)
+
+
+## replace again X and Y -------------------------------------------------------
+ 
+cytobands$V1[cytobands$V1 == 23] <- "X"
+cytobands$V1[cytobands$V1 == 24] <- "Y"
+
+
+## rename columns so that it's more obvious when calling them-------------------
+
+colnames(cytobands)[4] <-  "cytoband"
+colnames(cytobands)[1] <-  "chromosome"
+```
+
+```{r}
+print(head(cytobands))
+```
+
+Collect all the genes names
+```{r}
+genes <- c(rownames(genomic_pos))
+ref_genes<- data.frame(genes)
+```
+
+```{r}
+print(head(ref_genes))
+```
+
+```{r}
+print(head(genomic_pos))
+```
+
+The aim is to position each gene on a cytoband. 
+To do so, the following function has been created:
+```{r}
+# function that takes as input the chromosome number and start position 
+# of a gene and returns the cytoband -----
+
+  ## x : chromosome 
+  ## s : position of start 
+
+search_in_cytobandsref <- function(x, s){
+  c <- cytobands[which(cytobands$chromosome == x),]
+  for (i in 1:nrow(c)){
+    if (s >= c[i,2] &  s < c[i,3]){
+      return((c[i,4]))
+    }
+  }
+}
+
+## assign to each of the reference genes the cytoband on which it is located 
+
+assigned_cytoband <- list()
+
+for (g in 1:nrow(ref_genes)){
+  c <- search_in_cytobandsref(genomic_pos[ref_genes$genes[g],1], #chromosome
+                              genomic_pos[ref_genes$genes[g],2]) # start position
+  assigned_cytoband <- append(assigned_cytoband, droplevels(c[1]))
+}
+
+ref_genes$cytoband <- assigned_cytoband # add the cytobands variable
+
+ref_genes$chromosome <- 0
+ref_genes$chromosome <- genomic_pos$CHR[ref_genes$genes == rownames(genomic_pos)]
+```
+
+Look at the reference data table
+```{r}
+print(head(ref_genes))
+```
+
+### Aggregating the CNA scores per cytoband using MEDIAN
+
+**Median is used since there isn't the same number of genes in each cytoband.**
+
+```{r}
+# Compute median CNA score for each cytoband per spot -------------------------
+
+for (i in p){
+  
+  # add to the data frame a column with the information corresponding-----------
+  # to the cytoband
+  
+  cnv_df <- as.data.frame(eval(str2expression(sprintf("cnv_obj_%s",i)))$cnv_score_vis)
+  
+  # create cnv_cyt var : vector containing the cytobands in which each gene is  
+  #        chromosomes : vector containing the chromosomes in which each gene is  
+  
+  cnv_cyt <- c()
+  chromosomes <- c()
+  
+  for (j in 1:length(rownames(cnv_df))){
+    
+    cnv_cyt <- c(cnv_cyt, 
+                    as.character(ref_genes$cytoband[ref_genes$genes == 
+                    rownames(cnv_df)[j]]))
+    
+    chromosomes <- c(chromosomes, 
+                    ref_genes$chromosome[ref_genes$genes == 
+                    rownames(cnv_df)[j]])
+  }
+
+  cnv_df <- cbind(cnv_df,cnv_cyt)
+  
+  cnv_df <- cbind(cnv_df,chromosomes)
+  
+  # retrieving the colnames that are neither called cnv_cyt nor chromososmes 
+  # since we aggregate by those columns
+  
+  tmp <- colnames(cnv_df)[-which(colnames(cnv_df) == "cnv_cyt"
+    | colnames(cnv_df) == "chromosomes")]
+  
+  # aggregate the scores using median by the $cnv_cyt and $chromosomes columns
+  
+  cnv_df <- aggregate(x = cnv_df[, tmp],by = list(cnv_df$chromosomes, cnv_df$cnv_cyt),FUN = median)
+  
+  # rename the cnv_cyt and chromosomes columns since they are changes to 
+  #group.x1 group.x2 after aggregation 
+  
+  colnames(cnv_df)[1:2]<- c("chromosomes", "cnv_cyt")
+  
+  # remove the counts corresponding to the chromosome Y
+  
+  assign(sprintf("cnv_df_%s",i), cnv_df[-c(which(cnv_df$chromosome == "Y")), ])
+  
+}
+```
+
+The aim is to compute the median CNA score for each cytoband per cell type. Median was chosen since we do not necessarily have the exact number in each cell type.
+```{r}
+# patient 1 ------------------
+## subset containing only epithelial cells + compute the rowmean ----
+
+epi_barcodes <-ref1$Barcode[ref1$Annotations == "Epithelial"]
+
+epithelial <- cnv_df_1[, c("chromosomes", "cnv_cyt", epi_barcodes )]
+
+epithelial <- rowMedians(as.matrix(epithelial[ , -c(1,2)]), na.rm=TRUE)
+
+## same for mesenchymal cells ----
+
+mes_barcodes <- ref1$Barcode[ref1$Annotations == "Mésenchymal tumor cells"]
+
+mesenchymal <- cnv_df_1[,c("chromosomes", "cnv_cyt", mes_barcodes )]
+
+mesenchymal <- rowMedians(as.matrix(mesenchymal[ , -c(1,2)]), na.rm=TRUE)
+
+df1 <- cbind(cnv_df_1[,c("chromosomes", "cnv_cyt")], epithelial, mesenchymal)
+df1$patient <- "MpBC1"
+
+  
+# patient 2 ---------------------------------------------------------------------
+  
+
+## same for Spindle surrounded by NST cells ----
+
+spindle_NST_barcodes <- ref2$Barcode[ref2$Annotations == "Spindle surrounded by NST"]
+
+spindel_NST <- cnv_df_2[, c("chromosomes", "cnv_cyt", spindle_NST_barcodes )]
+
+spindel_NST <- rowMedians(as.matrix(spindel_NST[ , -c(1,2)]), na.rm=TRUE)
+
+## same for NST cells cells ----
+
+NST_barcodes <- ref2$Barcode[ref2$Annotations == "NST cells"]
+
+NST <- cnv_df_2[, c("chromosomes", "cnv_cyt", NST_barcodes )]
+
+NST <- rowMedians(as.matrix(NST[ , -c(1,2)]), na.rm=TRUE)
+
+
+## same for NST surrounded by spindle cells ----
+
+NST_spindle_barcodes <- ref2$Barcode[ref2$Annotations == "NST surrounded by spindle"]
+
+NST_spindle <- cnv_df_2[, c("chromosomes", "cnv_cyt", NST_spindle_barcodes )]
+
+NST_spindle <- rowMedians(as.matrix(NST_spindle[ , -c(1,2)]), na.rm=TRUE)
+
+df2 <- cbind(cnv_df_2[,c("chromosomes", "cnv_cyt")], spindel_NST, NST, NST_spindle)
+df2$patient <- "MpBC2"
+
+# patient 3 ---------------------------------------------------------------------
+
+## same for Pleiomorphic tumour cells ----
+
+pleio_barcodes <-ref3$Barcode[ref3$Annotations == "Pleiomorphic tumour"]
+
+pleiomorphic_tumor <- cnv_df_3[, c("chromosomes", "cnv_cyt", pleio_barcodes )]
+
+pleiomorphic_tumor <- rowMedians(as.matrix(pleiomorphic_tumor[ , -c(1,2)]), na.rm=TRUE)
+
+## same for Spindle cell tumour cells ----
+
+spindle_barcodes <- ref3$Barcode[ref3$Annotations == "Spindle cell tumour"]
+
+spindle <- cnv_df_3[, c("chromosomes", "cnv_cyt", spindle_barcodes )]
+
+spindle <- rowMedians(as.matrix(spindle[ , -c(1,2)]), na.rm=TRUE)
+
+
+## same for Squamous cell tumour ----
+
+squamous_barcodes <- ref3$Barcode[ref3$Annotations == "Squamous cell tumour"]
+
+squamous <- cnv_df_3[, c("chromosomes", "cnv_cyt", squamous_barcodes )]
+
+squamous <- rowMedians(as.matrix(squamous[ , -c(1,2)]), na.rm=TRUE)
+  
+df3 <- cbind(cnv_df_3[,c("chromosomes", "cnv_cyt")], pleiomorphic_tumor, spindle,squamous)
+df3$patient <- "MpBC3"
+
+# patient 4 ---------------------------------------------------------------------
+
+## same for Spindle cell tumour cells ----
+
+spindle_barcodes <- ref4$Barcode[ref4$Annotations == "Spindle cell tumour"]
+
+spindle <- cnv_df_4[, c("chromosomes", "cnv_cyt",spindle_barcodes )]
+
+spindle <- rowMedians(as.matrix(spindle[ , -c(1,2)]), na.rm=TRUE)
+
+## same for Osteosarcomatoid tumour cells ----
+
+osteo_barcodes <- ref4$Barcode[ref4$Annotations == "Osteosarcomatoid tumour"]
+
+osteosarcomatoid <- cnv_df_4[, c("chromosomes", "cnv_cyt", osteo_barcodes )]
+
+osteosarcomatoid <- rowMedians(as.matrix(osteosarcomatoid[ , -c(1,2)]), na.rm=TRUE)
+  
+## same for Mixed / transition cells ----
+
+mixed_barcodes <- ref4$Barcode[ref4$Annotations == "Mixed / transition"]
+
+mixed_transition <- cnv_df_4[, c("chromosomes", "cnv_cyt", mixed_barcodes )]
+
+mixed_transition <- rowMedians(as.matrix(mixed_transition[ , -c(1,2)]), na.rm=TRUE)
+  
+df4 <- cbind(cnv_df_4[,c("chromosomes", "cnv_cyt")], spindle, osteosarcomatoid,mixed_transition)
+df4$patient <- "MpBC4"
+
+# patient 5 ---------------------------------------------------------------------
+
+## same for Spindle cell tumour cells ----
+
+spindle_barcodes <- ref5$Barcode[ref5$Annotations == "Spindle cell tumour"]
+
+spindle <- cnv_df_5[, c("chromosomes", "cnv_cyt", spindle_barcodes )]
+
+spindle <- rowMedians(as.matrix(spindle[ , -c(1,2)]), na.rm=TRUE)
+
+
+## subset containing only epithelial cells + compute the rowmean ----
+
+epi_barcodes <-ref5$Barcode[ref5$Annotations == "Epithelial"]
+
+epithelial <- cnv_df_5[, c("chromosomes", "cnv_cyt", epi_barcodes )]
+
+epithelial <- rowMedians(as.matrix(epithelial[ , -c(1,2)]), na.rm=TRUE)
+
+df5 <- cbind(cnv_df_5[,c("chromosomes", "cnv_cyt")], spindle, epithelial)
+df5$patient <- "MpBC5"
+# patient 6 ---------------------------------------------------------------------
+
+## same for Spindle++ spindle cells ----
+
+very_spindle_barcodes <- ref6$Barcode[ref6$Annotations == "Spindle++ spindle"]
+
+very_spindle <- cnv_df_6[, c("chromosomes", "cnv_cyt", very_spindle_barcodes )]
+
+very_spindle <- rowMedians(as.matrix(very_spindle[ , -c(1,2)]), na.rm=TRUE)
+
+## same for Spindle- tumour cells ----
+
+little_spindle_barcodes <- ref6$Barcode[ref6$Annotations == "Spindle- tumour"]
+
+little_spindle <- cnv_df_6[, c("chromosomes", "cnv_cyt", little_spindle_barcodes )]
+
+little_spindle <- rowMedians(as.matrix(little_spindle[ , -c(1,2)]), na.rm=TRUE)
+
+
+df6 <- cbind(cnv_df_6[,c("chromosomes", "cnv_cyt")], very_spindle, little_spindle)
+df6$patient <- "MpBC6"
+# patient 7 ---------------------------------------------------------------------
+
+## same for Mixoid matrix-enriched spindle+ spindle cells ----
+
+mixoid_barcodes <- ref7$Barcode[ref7$Annotations == "Mixoid matrix-enriched spindle+ spindle"]
+
+mixoid <- cnv_df_7[,c("chromosomes", "cnv_cyt", mixoid_barcodes )]
+
+mixoid <- rowMedians(as.matrix(mixoid[ , -c(1,2)]), na.rm=TRUE)
+
+## same for Classic spindle tumour cells ----
+
+classic_spindle_barcodes <- ref7$Barcode[ref7$Annotations == "Classic spindle tumour"]
+
+classic_spindle <- cnv_df_7[, c("chromosomes", "cnv_cyt", classic_spindle_barcodes )]
+
+classic_spindle <- rowMedians(as.matrix(classic_spindle[ , -c(1,2)]), na.rm=TRUE)
+df7 <- cbind(cnv_df_7[,c("chromosomes", "cnv_cyt")], mixoid, classic_spindle)
+df7$patient <- "MpBC7"
+# patient 8 ---------------------------------------------------------------------
+
+## same for Squamous++ tumour cells ----
+  
+very_squamous_barcodes <- ref8$Barcode[ref8$Annotations == "Squamous++ tumour"]
+
+very_squamous <- cnv_df_8[, c("chromosomes", "cnv_cyt", very_squamous_barcodes )]
+
+very_squamous <- rowMedians(as.matrix(very_squamous[ , -c(1,2)]), na.rm=TRUE)
+  
+## same for Squamous- tumour cells ----
+  
+little_squamous_barcodes <-ref8$Barcode[ref8$Annotations == "Squamous- tumour"]
+
+little_squamous <- cnv_df_8[, c("chromosomes", "cnv_cyt", little_squamous_barcodes )]
+
+little_squamous <- rowMedians(as.matrix(little_squamous[ , -c(1,2)]), na.rm=TRUE)
+
+df8 <- cbind(cnv_df_8[,c("chromosomes", "cnv_cyt")], very_squamous, little_squamous)
+df8$patient <- "MpBC8"  
+```
+
+Example of data frame produced :
+```{r}
+print(head(df1))
+```
+
+### Study of the differences 
+
+Difference = CNA of the more transdifferentiated  compartment - CNA of the least transdifferentiated.
+That way positive values means overexpression.
+
+```{r}
+# differences 
+df1_diff <- df1
+df1_diff$difference <- df1_diff$mesenchymal - df1_diff$epithelial
+df1_diff <- df1_diff[,c(5,1,2,6)]
+df1_diff$location <- paste(df1_diff$chromosome, df1_diff$cnv_cyt, sep = "_")
+df1_diff[,c(2,3)] <- NULL
+
+df2_diff <- df2
+df2_diff$difference <- df2_diff$spindel_NST - df2_diff$NST 
+df2_diff <- df2_diff[,c(6,1,2,7)]
+df2_diff$location <- paste(df2_diff$chromosome, df2_diff$cnv_cyt, sep = "_")
+df2_diff[,c(2,3)] <- NULL
+
+df3_diff <- df3
+df3_diff$difference <- df3_diff$spindle - df3_diff$squamous
+df3_diff <- df3_diff[,c(6,1,2,7)]
+df3_diff$location <- paste(df3_diff$chromosome, df3_diff$cnv_cyt, sep = "_")
+df3_diff[,c(2,3)] <- NULL
+
+df4_diff <- df4
+df4_diff$difference <- df4_diff$spindle - df4_diff$osteosarcomatoid
+df4_diff <- df4_diff[,c(6,1,2,7)]
+df4_diff$location <- paste(df4_diff$chromosome, df4_diff$cnv_cyt, sep = "_")
+df4_diff[,c(2,3)] <- NULL
+
+df5_diff <- df5
+df5_diff$difference <- df5_diff$spindle - df5_diff$epithelial
+df5_diff<- df5_diff[,c(5,1,2,6)]
+df5_diff$location <- paste(df5_diff$chromosome, df5_diff$cnv_cyt, sep = "_")
+df5_diff[,c(2,3)] <- NULL
+
+df6_diff <- df6
+df6_diff$difference <- df6_diff$very_spindle - df6_diff$little_spindle
+df6_diff <- df6_diff[,c(5,1,2,6)]
+df6_diff$location <- paste(df6_diff$chromosome, df6_diff$cnv_cyt, sep = "_")
+df6_diff[,c(2,3)] <- NULL
+
+df8_diff <- df8
+df8_diff$difference <- df8_diff$little_squamous - df8_diff$very_squamous
+df8_diff <- df8_diff[,c(5,1,2,6)]
+df8_diff$location <- paste(df8_diff$chromosome, df8_diff$cnv_cyt, sep = "_")
+df8_diff[,c(2,3)] <- NULL
+```
+
+Pivot data frames in order to create the final data frame.
+
+```{r}
+# pivot dataframes 
+
+df1 <- pivot_longer(data = df1,
+                         cols = -c(1,2,5), 
+                         names_to = "Cells",
+                         values_to = "CNA_score")
+  
+df2 <- pivot_longer(data = df2,
+                    cols = -c(1,2,6), 
+                    names_to = "Cells",
+                    values_to = "CNA_score")
+
+df3 <- pivot_longer(data = df3,
+                    cols = -c(1,2,6), 
+                    names_to = "Cells",
+                    values_to = "CNA_score")
+
+df4 <- pivot_longer(data = df4,
+                    cols = -c(1,2,6), 
+                    names_to = "Cells",
+                    values_to = "CNA_score")
+
+df5 <- pivot_longer(data = df5,
+                    cols = -c(1,2,5), 
+                    names_to = "Cells",
+                    values_to = "CNA_score")
+
+df6 <- pivot_longer(data = df6,
+                    cols = -c(1,2,5), 
+                    names_to = "Cells",
+                    values_to = "CNA_score")
+
+df7 <- pivot_longer(data = df7,
+                    cols = -c(1,2,5), 
+                    names_to = "Cells",
+                    values_to = "CNA_score")
+
+df8 <- pivot_longer(data = df8,
+                    cols = -c(1,2,5), 
+                    names_to = "Cells",
+                    values_to = "CNA_score")
+```
+
+```{r}
+
+# 15/ Bind all the final data frames  ----
+
+Final_df <- df1
+for (i in 2:8){
+  Final_df <- rbind(Final_df, eval(str2expression(sprintf("df%s",i))))
+}
+
+  ## rename the names of cells to make it match the initial annotation file ----
+Final_df$Cells[Final_df$Cells == "epithelial"] = "Epithelial tumor cells"
+Final_df$Cells[Final_df$Cells == "mesenchymal"] = "Mésenchymal tumor cells"
+Final_df$Cells[Final_df$Cells == "spindel_NST"] = "Spindle surrounded by NST"
+Final_df$Cells[Final_df$Cells == "NST"] = "NST cells"
+Final_df$Cells[Final_df$Cells == "spindle"] = "Spindle cell tumour"
+Final_df$Cells[Final_df$Cells == "NST_spindle"] = "NST surrounded by spindle"
+Final_df$Cells[Final_df$Cells == "squamous"] = "Squamous cell tumour"
+Final_df$Cells[Final_df$Cells == "pleiomorphic_tumor"] = "Pleiomorphic tumour"
+Final_df$Cells[Final_df$Cells == "osteosarcomatoid"] = "Osteosarcomatoid tumour"
+Final_df$Cells[Final_df$Cells == "mixed_transition"] = "Mixed / transition"
+Final_df$Cells[Final_df$Cells == "very_spindle"] = "Spindle++ spindle"
+Final_df$Cells[Final_df$Cells == "little_spindle"] = "Spindle- tumour"
+Final_df$Cells[Final_df$Cells == "mixoid"] = "Mixoid matrix-enriched spindle+ spindle"
+Final_df$Cells[Final_df$Cells == "classic_spindle"] = "Classic spindle tumour"
+Final_df$Cells[Final_df$Cells == "very_squamous"] = "Squamous++ tumour"
+Final_df$Cells[Final_df$Cells == "little_squamous"] = "Squamous- tumour"
+
+## These steps are needed so that the Y axis is sorted from chromosome 1 to X
+
+Final_df$chromosomes[Final_df$chromosomes == "X"] <- 23
+Final_df$chromosomes <- strtoi(Final_df$chromosomes)
+```
+
+```{r}
+order_df <- data.frame(cytobands[, c(1,4)])
+order_df$chromosome[order_df$chromosome == "X"] <- "23"
+order_df <- order_df[-c(which(order_df$chromosome == "Y")),]
+order_df$chromosome <- lapply(order_df$chromosome, strtoi)
+Final_df$order <- 0 
+for (i in 1:nrow(Final_df)){
+Final_df$order[i] <-  which(order_df$cytoband  == Final_df$cnv_cyt[i] & order_df$chromosome == Final_df$chromosomes[i])}
+Final_df <- Final_df[order(Final_df$order, decreasing = FALSE),]
+```
+
+Final data frame : 
+
+```{r}
+print(head(Final_df))
+```
+
+# Outputs 
+
+## HEATMAP - Comparison of CNA scores in contingents 
+```{r}
+output <- ggplot(Final_df, aes(x = cnv_cyt, y = reorder(Cells, order), fill = CNA_score)) + geom_raster() +
+scale_fill_gradient2(low = "blue", high = "red", mid= "white", midpoint = 0) + 
+ggtitle("Median CNA scores in cytobands, per cell type") + theme_bw() +theme(axis.text.x=element_blank(), 
+                                             axis.ticks.x=element_blank()) + geom_tile() + 
+facet_grid(rows = vars(Final_df$patient), cols = vars(unlist(Final_df$chromosomes)), scales = "free",
+           space = "free") + theme(panel.spacing.x = unit(0,"line"), panel.spacing.y = unit(0,"line"))
+print(output)
+```
+
+Writing the output in a separate pdf file.
+```{r echo = FALSE}
+## Creating a png file containing our Heatmap 
+setwd("./../4_RESULTS/3_Infercnv")
+pdf(file = "Infercnv_NEWDATA.pdf", width = 10, height = 6) 
+output
+dev.off()
+
+```
+
+## T tests 
+
+=> Distribution of the pvalues of the t tests on each cytoband.
+
+Nul hypothesis : no genetic difference between the epithelial tumoral cells and the mesenchymal ones.
+
+```{r}
+
+for (i in p){
+  
+  ## subset containing only epithelial cells  ----
+  
+  epi_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "Epithelial"]
+  
+  ## same for Pleiomorphic tumour cells ----
+  
+  pleio_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "Pleiomorphic tumour"]
+  
+  ## same for Squamous cell tumour ----
+  
+  squamous_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "Squamous cell tumour"]
+  
+  ## same for Osteosarcomatoid tumour cells ----
+  
+  osteo_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "Osteosarcomatoid tumour"]
+  
+  ## same for Mixed / transition cells ----
+  
+  mixed_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "Mixed / transition"]
+  
+  ## same for Squamous++ tumour cells ----
+  
+  very_squamous_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "Squamous++ tumour"]
+  
+  ## same for Squamous- tumour cells ----
+  
+  little_squamous_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "Squamous- tumour"]
+  
+  ## same for mesenchymal cells ----
+  
+  mes_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "Mésenchymal tumor cells"]
+  
+  ## same for Spindle surrounded by NST cells ----
+  
+  spindle_NST_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "Spindle surrounded by NST"]
+  
+  ## same for Spindle cell tumour cells ----
+  
+  spindle_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "Spindle cell tumour"]
+  
+  ## same for Spindle++ spindle cells ----
+  
+  very_spindle_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "Spindle++ spindle"]
+  
+  ## same for Spindle- tumour cells ----
+  
+  little_spindle_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "Spindle- tumour"]
+  
+  ## same for Mixoid matrix-enriched spindle+ spindle cells ----
+  
+  mixoid_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "Mixoid matrix-enriched spindle+ spindle"]
+  
+  ## same for Classic spindle tumour cells ----
+  
+  classic_spindle_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "Classic spindle tumour"]
+    
+  ## same for NST cells cells ----
+  
+  NST_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "NST cells"]
+
+  ## same for NST surrounded by spindle cells ----
+  
+  NST_spindle_barcodes <- eval(str2expression(sprintf("ref%s", i)))$Barcode[eval(
+    str2expression(sprintf("ref%s", i)))$Annotations == "NST surrounded by spindle"]
+    
+  ## t-tests ------
+  
+  if (length(mes_barcodes) != 0 & length(epi_barcodes) !=0){
+    mesenchymal_vs_epithelial <- c()
+    for (j in 1:nrow(eval(str2expression(sprintf("cnv_df_%s", i))))){
+      c1 <- eval(str2expression(sprintf("cnv_df_%s", i)))[j,mes_barcodes]
+      c2 <- eval(str2expression(sprintf("cnv_df_%s", i)))[j,epi_barcodes]
+      
+      r <- t.test(c1, c2, p.adjust.methods ="bonferroni")
+      mesenchymal_vs_epithelial <- append(mesenchymal_vs_epithelial, r$p.value)
+    }
+    
+  }
+  
+  if (length(spindle_NST_barcodes) != 0 & length(NST_barcodes) !=0){
+    spindleNST_vs_NST <- c()
+    for (j in 1:nrow(eval(str2expression(sprintf("cnv_df_%s", i))))){
+      c1 <- eval(str2expression(sprintf("cnv_df_%s", i)))[j,spindle_NST_barcodes]
+      c2 <- eval(str2expression(sprintf("cnv_df_%s", i)))[j,NST_barcodes]
+      
+      r <- t.test(c1, c2,  p.adjust.methods ="bonferroni")
+      spindleNST_vs_NST <- append(spindleNST_vs_NST, r$p.value)
+    }
+  }
+  
+  if (length(squamous_barcodes) != 0 & length(spindle_barcodes) !=0){
+    squamous_vs_spindle <- c()
+    for (j in 1:nrow(eval(str2expression(sprintf("cnv_df_%s", i))))){
+      c1 <- eval(str2expression(sprintf("cnv_df_%s", i)))[j,squamous_barcodes]
+      c2 <- eval(str2expression(sprintf("cnv_df_%s", i)))[j,spindle_barcodes]
+      
+      r <- t.test(c1, c2,  p.adjust.methods = "bonferroni")
+      squamous_vs_spindle <- append(squamous_vs_spindle, r$p.value)
+    }
+  }
+  
+  if (length(spindle_barcodes) != 0 & length(epi_barcodes) !=0){
+    spindle_vs_epithelial <- c()
+    for (j in 1:nrow(eval(str2expression(sprintf("cnv_df_%s", i))))){
+      c1 <- eval(str2expression(sprintf("cnv_df_%s", i)))[j,spindle_barcodes]
+      c2 <- eval(str2expression(sprintf("cnv_df_%s", i)))[j,epi_barcodes]
+      
+      r <- t.test(c1, c2, p.adjust.methods ="bonferroni")
+      spindle_vs_epithelial <- append(spindle_vs_epithelial, r$p.value)
+    }
+  }
+
+  if (length(osteo_barcodes) != 0 & length(spindle_barcodes) !=0){
+    osteosarcomatoid_vs_spindle <- c()
+    for (j in 1:nrow(eval(str2expression(sprintf("cnv_df_%s", i))))){
+      c1 <- eval(str2expression(sprintf("cnv_df_%s", i)))[j,osteo_barcodes]
+      c2 <- eval(str2expression(sprintf("cnv_df_%s", i)))[j,spindle_barcodes]
+      
+      r <- t.test(c1, c2,p.adjust.methods ="bonferroni")
+      osteosarcomatoid_vs_spindle <- append(osteosarcomatoid_vs_spindle, r$p.value)
+    }
+  }
+  
+  if (length(very_spindle_barcodes) != 0 & length(little_spindle_barcodes) !=0){
+    very_vs_little_spindle <- c()
+    for (j in 1:nrow(eval(str2expression(sprintf("cnv_df_%s", i))))){
+      c1 <- eval(str2expression(sprintf("cnv_df_%s", i)))[j,very_spindle_barcodes]
+      c2 <- eval(str2expression(sprintf("cnv_df_%s", i)))[j,little_spindle_barcodes]
+      
+      r <- t.test(c1, c2, p.adjust.methods ="bonferroni")
+      very_vs_little_spindle <- append(very_vs_little_spindle, r$p.value)
+    }
+  }
+  
+  if (length(very_squamous_barcodes) != 0 & length(little_squamous_barcodes) !=0){
+    very_vs_little_squamous <- c()
+    for (j in 1:nrow(eval(str2expression(sprintf("cnv_df_%s", i))))){
+      c1 <- eval(str2expression(sprintf("cnv_df_%s", i)))[j,very_squamous_barcodes]
+      c2 <- eval(str2expression(sprintf("cnv_df_%s", i)))[j,little_squamous_barcodes]
+      
+      r <- t.test(c1, c2,p.adjust.methods ="bonferroni") 
+      very_vs_little_squamous <- append(very_vs_little_squamous, r$p.value)
+    }
+  }
+  
+  # Create the final dataframe containing the results of the t-test -----
+  
+  if(exists("mesenchymal_vs_epithelial")==TRUE){
+    if(length(mesenchymal_vs_epithelial) != 0){
+    assign(sprintf("cnv_df_%s",i),
+           cbind(eval(str2expression(sprintf("cnv_df_%s",i)))[,c(1,2)], mesenchymal_vs_epithelial))
+    rm(mesenchymal_vs_epithelial)
+    }}
+  if(exists("spindleNST_vs_NST")==TRUE){
+    if(length(spindleNST_vs_NST) != 0){
+    assign(sprintf("cnv_df_%s",i),
+           cbind(eval(str2expression(sprintf("cnv_df_%s",i)))[,c(1,2)], spindleNST_vs_NST))
+      rm(spindleNST_vs_NST)}}
+    
+  if(exists("squamous_vs_spindle")==TRUE){
+    if(length(squamous_vs_spindle) != 0){
+    assign(sprintf("cnv_df_%s",i),
+           cbind(eval(str2expression(sprintf("cnv_df_%s",i)))[,c(1,2)], squamous_vs_spindle))
+      rm(squamous_vs_spindle)}}
+  
+  if(exists("spindle_vs_epithelial")==TRUE){
+    if(length(spindle_vs_epithelial) != 0){
+    assign(sprintf("cnv_df_%s",i),
+           cbind(eval(str2expression(sprintf("cnv_df_%s",i)))[,c(1,2)], spindle_vs_epithelial))
+      rm(spindle_vs_epithelial)}}
+  
+  if(exists("osteosarcomatoid_vs_spindle")==TRUE){
+    if(length(osteosarcomatoid_vs_spindle) != 0){
+    assign(sprintf("cnv_df_%s",i),
+           cbind(eval(str2expression(sprintf("cnv_df_%s",i)))[,c(1,2)], osteosarcomatoid_vs_spindle))
+      rm(osteosarcomatoid_vs_spindle)}}
+  
+  if(exists("very_vs_little_spindle")==TRUE){
+    if (length(very_vs_little_spindle) != 0){
+    assign(sprintf("cnv_df_%s",i),
+           cbind(eval(str2expression(sprintf("cnv_df_%s",i)))[,c(1,2)], very_vs_little_spindle))
+      rm(very_vs_little_spindle)}}
+  
+  if(exists("very_vs_little_squamous")==TRUE){
+    if(length(very_vs_little_squamous) != 0){
+    assign(sprintf("cnv_df_%s",i),
+           cbind(eval(str2expression(sprintf("cnv_df_%s",i)))[,c(1,2)], very_vs_little_squamous))
+      rm(very_vs_little_squamous)}}
+  
+  ## add a column with the patient id ----
+  
+  patient <- rep(sprintf("MpBC%s",i), nrow(eval(str2expression(sprintf("cnv_df_%s", i)))))
+  
+  ## create the final data frame for each patient ----
+  
+  assign(sprintf("cnv_df_%s",i),cbind(eval(str2expression(sprintf("cnv_df_%s", i))), patient))
+  
+}
+
+# 15/ Bind all the final data frames  ----
+
+cnv_df_1$comparison <-  "mesenchymal tumor cells VS epithelial tumor cells"
+colnames(cnv_df_1)[3] <- "pvalue"
+
+cnv_df_2$comparison <-  "Spindle surrounded by NST VS NST cells"
+colnames(cnv_df_2)[3] <- "pvalue"
+
+cnv_df_3$comparison <- "Squamous cell tumour VS Spindle cell tumor"
+colnames(cnv_df_3)[3] <- "pvalue"
+
+cnv_df_4$comparison <-  "Osteosarcomatoid tumor VS spindle cell tumor"
+colnames(cnv_df_4)[3] <- "pvalue"
+
+cnv_df_5$comparison <-  "Spindle cell tumor VS Epithelial tumor cells"
+colnames(cnv_df_5)[3] <- "pvalue"
+
+cnv_df_6$comparison <-  "Spindle++ spindle VS Spindle- tumour"
+colnames(cnv_df_6)[3] <- "pvalue"
+
+cnv_df_8$comparison <- "Squamous++ tumour VS Squamous- tumour"
+colnames(cnv_df_8)[3] <- "pvalue"
+
+Final_df <- rbind(cnv_df_1, cnv_df_2, cnv_df_3, cnv_df_4, cnv_df_5, cnv_df_6, cnv_df_8)
+
+Final_df$chromosome[Final_df$chromosome == "X"] <- 23
+Final_df$chromosome <- strtoi(Final_df$chromosome)
+
+```
+
+Results: 
+```{r}
+output <- ggplot(Final_df, aes(x = cnv_cyt, y = comparison, fill = pvalue)) +
+  geom_raster()+
+  scale_fill_gradient2(low = "light pink", high = "black", mid= "white", midpoint = 0.05) + 
+  ggtitle("p-value with Bonferroni correction obtained with a t-test done on CNA scores") +
+  facet_grid(rows = vars(Final_df$patient), cols = vars(unlist(Final_df$chromosome)) , scales = "free",
+             space = "free") + theme_bw() +theme(axis.text.x=element_blank(), 
+                                                 axis.ticks.x=element_blank()) 
+
+print(output)
+```
+write the output in a file :
+
+```{r}
+setwd("./../4_RESULTS/4_t-test/")
+pdf(file = "t-test_NEWDATA.pdf", width = 30, height = 15) 
+output
+dev.off()
+```
+Il semble que notre hypothèse ne fonctionne pas. En effet le patient 8 qui présente des nécroses sur sa coupe aurait d'après notre hypothèse un changement de phénotype dû à la pression de l’environnement. Or sur notre heatmap on observe des différences significatives chez ce même patient…
+
+## Violin plots - Dispersion of the CNA differences
+
+
+Dispersion of the differences:
+
+```{r}
+# abs(zscore) = 3
+
+
+Final_df <- rbind(df1_diff,df2_diff,df3_diff,df4_diff,df5_diff,df6_diff,df8_diff)
+Final_df_all <- Final_df
+av <- mean(Final_df_all$difference)
+std <- sd(Final_df_all$difference)
+limite = 3*std +av
+limite # 0.427
+
+# violin plots per patients
+out1 <- ggplot(Final_df, aes(x = patient, y = difference)) + geom_violin() +
+  geom_boxplot(width=0.1, color="grey", alpha=0.2)+ theme_classic() + geom_hline(yintercept=limite, linetype="dashed", color = "red") + geom_hline(yintercept= -limite, linetype="dashed", color = "red")
+
+# violin plot with all patients data pooled
+Final_df_all$patient <- "all"
+out2 <- ggplot(Final_df_all, aes(x =  patient, y = difference)) + geom_violin() + 
+  geom_boxplot(width=0.1, color="grey", alpha=0.2)+ theme_classic()+ geom_hline(yintercept=limite, linetype="dashed", color = "red") + geom_hline(yintercept= -limite, linetype="dashed", color = "red")
+violin <- ggarrange(out1, out2, ncol = 2, nrow = 1 )
+violin
+```
+
+```{r}
+print(violin)
+```
+
+Presence of outliers => Normalization needed.
+
+Writing violin plot in a pdf file.
+```{r}
+setwd("./../4_RESULTS/3_Infercnv")
+## Creating a png file containing our Heatmap 
+pdf(file = "Violin_chart_NEWDATA.pdf", width = 10, height = 6) 
+
+print(violin)
+
+dev.off()
+
+```
+
+## Normalization OF CNA SCORE differences
+
+```{r}
+# zscore
+Final_df$z_score <- (Final_df$difference - av)/std
+
+Final_df <- Final_df %>% separate(location, c('chromosome', "cytoband"), sep = "_")
+
+Final_df$chromosome[Final_df$chromosome == "X"] <- 23
+
+Final_df$chromosome <- strtoi(Final_df$chromosome)
+
+# Replace all the abs(zscores) < 3 by 0 in order to keep only the outliers
+Final_df$z_score[abs(Final_df$z_score) <3] <- 0
+
+# output
+output <- ggplot(Final_df, aes(x = cytoband,  y = patient, fill = z_score)) +
+  geom_tile()+
+  scale_fill_gradient2(low = "blue", high = "red", mid= "white", midpoint = 0) + 
+  ggtitle("Z-scores - Normalized CNA scores differences in each cytband") +
+  facet_grid(rows = vars(Final_df$patient), cols = vars(unlist(Final_df$chromosome)) , scales = "free",
+             space = "free") + theme_bw() +theme(axis.text.y=element_blank(),
+                                                 axis.ticks.y=element_blank(),
+                                                 axis.text.x=element_blank(), 
+                                                 axis.ticks.x=element_blank()) + theme(panel.spacing.x = unit(0,"line"), panel.spacing.y = unit(0,"line")) +theme(legend.key.size = unit(5, 'mm'))
+```
+
+```{r}
+print(output)
+```
+
+
+Writing output in a file.
+```{r echo=FALSE}
+setwd("./../4_RESULTS/3_Infercnv")
+pdf(file = "z_score_NEWDATA.pdf",width = 6, height = 5) 
+output
+dev.off()
+```

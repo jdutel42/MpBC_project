@@ -1,0 +1,7 @@
+"0","# Charger les marqueurs si déjà calculés"
+"0","# markers <- readRDS(""markers_pur_cluster_resolution_0.15_v2.rds"")"
+"0","# markers <- read.csv(""/mnt/datadisk/Jordan/Images/DEG/Minpct_0.1/markers_pur_cluster_resolution_0.15_v2_minpct_0.1.csv"")"
+"0","markers <- read.csv(""/mnt/datadisk/Jordan/Images/DEG/Minpct_0.5/markers_pur_cluster_resolution_0.15_v2_minpct_0.5.csv"")"
+"0",""
+"0",""
+"0","Idents(MpBC_obj) <- ""seurat_clusters_rename"""

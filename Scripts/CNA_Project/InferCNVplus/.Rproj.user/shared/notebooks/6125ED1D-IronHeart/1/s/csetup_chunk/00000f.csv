@@ -1,0 +1,85 @@
+"0","knitr::opts_chunk$set(echo = TRUE)"
+"0",""
+"0","library(Seurat)"
+"2","Loading required package: SeuratObject
+"
+"2","Loading required package: sp
+"
+"2","‘SeuratObject’ was built under R 4.4.1 but the current version is 4.4.3; it is recomended that
+you reinstall ‘SeuratObject’ as the ABI for R may have changed
+"
+"2","
+Attaching package: ‘SeuratObject’
+
+"
+"2","The following objects are masked from ‘package:base’:
+
+    intersect, t
+
+"
+"2","Registered S3 method overwritten by 'data.table':
+  method           from
+  print.data.table     
+"
+"2","Registered S3 method overwritten by 'htmlwidgets':
+  method           from         
+  print.htmlwidget tools:rstudio
+"
+"0","library(ggplot2)"
+"2","Want to understand how all the pieces fit together? Read R for Data Science:
+https://r4ds.hadley.nz/
+"
+"0","library(dplyr)"
+"2","
+Attaching package: ‘dplyr’
+
+"
+"2","The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+"
+"2","The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+"
+"0","library(tidyr)"
+"0","library(hdf5r)"
+"0","library(ggfortify)"
+"0","library(harmony)"
+"2","Loading required package: Rcpp
+"
+"0","library(sctransform)"
+"0","library(viridis)"
+"2","Loading required package: viridisLite
+"
+"0","library(stringr)"
+"0","library(viridisLite)"
+"0","library(patchwork)"
+"0","library(matrixStats)"
+"2","
+Attaching package: ‘matrixStats’
+
+"
+"2","The following object is masked from ‘package:dplyr’:
+
+    count
+
+"
+"0","library(ggpubr)"
+"0","library(infercnvPlus)"
+"0",""
+"0","dir_path <- ""/mnt/datadisk/Jordan/Data/"""
+"0",""
+"0","# Liste des échantillons à traiter (excluant MpBC12)"
+"0","samples <- paste0(""MpBC"", c(1:11, 13:16))"
+"0",""
+"0","# Liste des patients par pathologie"
+"0","Squam_tum_patients <- c(""MpBC3"", ""MpBC8"")"
+"0","Epi_tum_patients <- c(""MpBC1"", ""MpBC2"", ""MpBC5"", ""MpBC9"", ""MpBC10"", ""MpBC11"", ""MpBC13"", ""MpBC14"", ""MpBC15"", ""MpBC16"")"
+"0","Mes_tum_patients <- c(""MpBC1"", ""MpBC8"")"
+"0","Mes_norm_patients <- c(""MpBC1"", ""MpBC2"", ""MpBC5"", ""MpBC6"", ""MpBC9"", ""MpBC11"", ""MpBC14"", ""MpBC15"")"
+"0","Spindle_tum_patients <- c(""MpBC2"", ""MpBC3"", ""MpBC4"", ""MpBC5"", ""MpBC6"", ""MpBC7"", ""MpBC10"", ""MpBC11"", ""MpBC14"")"
+"0","Osteo_tum_patients <- c(""MpBC4"")"
+"0","Chondro_tum_patients <- c(""MpBC9"", ""MpBC13"", ""MpBC15"", ""MpBC16"")"

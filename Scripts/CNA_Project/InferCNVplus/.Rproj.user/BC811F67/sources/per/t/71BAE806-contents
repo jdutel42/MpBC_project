@@ -1,0 +1,395 @@
+# Study:  Transcriptomique spatiale et transdifférenciation dans les tumeurs du
+# sein
+# 
+# Author: Inès Kardous, Intern at the CRCL from feb to aug 2024, supervised 
+#         by Mr Pierre Martinez
+# 
+# This script correspond to the infercnv step. This script was written (adapted from the 4_infercnv.rmd file) 
+# in order to create heatmaps for each patient without aggregating the data.
+################################################################################
+
+
+
+
+# Libraries --------------------------------------------------------------------
+library(Seurat)
+library(hdf5r)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(gplots)
+library(matrixStats)
+library(ggpubr)
+library(infercnvPlus)
+
+
+p <- seq(1,8)
+for ( i in p ){
+  
+  setwd(sprintf("./../0_RAW_DATA/Mp_BC%s", i))
+  
+  # Visium files --------------------------------------------------------------
+  
+  assign(sprintf("matrix_%s", i),
+         Load10X_Spatial("./", "/filtered_feature_bc_matrix.h5"))                      
+  
+  # Import seurat object and convert it to a matrix object for inferCNV
+  assign(sprintf("matrix_%s", i),
+         importSrat(eval(str2expression(sprintf("matrix_%s",i))),
+                    slot = "counts", 
+                    assay = "Spatial", 
+                    log2tpm_tr = TRUE))
+  
+  
+  # from counts to transcripts per million -------------------------------------
+  
+  assign(sprintf("matrix_%s",i), 
+         umi_to_log2tpm(eval(str2expression(sprintf("matrix_%s",i)))))
+  
+  
+  # Annotation files ----------------------------------------------------------
+  
+  ref <- read.csv(sprintf("MpBC%s_annotations.csv", i) , 
+                  header = TRUE, 
+                  sep = ",", 
+                  stringsAsFactors = TRUE)
+  
+  
+  # change column name to "Annotations" ----------------------------------------
+  
+  colnames(ref)[2] <- "Annotations"
+  
+  # Retrieve cell types names --------------------------------------------------
+  
+  assign(sprintf("cells%s", i), unique( ref$Annotations))
+  
+  assign(sprintf("ref%s", i), ref)
+
+  setwd("./..")
+}
+
+# create our references per patient --------------------------------------------
+
+cells_types_pooled <- c()
+
+for (i in p){
+  cells_types_pooled <- append(cells_types_pooled, 
+                               as.character(eval(
+                                 str2expression(sprintf("cells%s", i)))))}
+for(i in 1:8){
+  all_cells<- eval(str2expression((sprintf("ref%s", i))))
+
+  
+  reference <- all_cells[c(which(all_cells$Annotations == cells_types_pooled[5] | 
+                                 all_cells$Annotations == cells_types_pooled[6] |
+                                 all_cells$Annotations == cells_types_pooled[9] |
+                                 all_cells$Annotations == cells_types_pooled[10] |
+                                 all_cells$Annotations == cells_types_pooled[20] |  
+                                 all_cells$Annotations == cells_types_pooled[25] |
+                                 all_cells$Annotations == cells_types_pooled[29])),]
+  assign(sprintf("barcodes%s",i), as.vector(reference$Barcode))
+
+# Retrieve barcodes of the unwanted annotations --------------------------------
+  assign(sprintf("unwanted%s", i), as.vector(all_cells$Barcode[c(which(
+    all_cells$Annotations == cells_types_pooled[1] | 
+      all_cells$Annotations == cells_types_pooled[4] |
+      all_cells$Annotations == cells_types_pooled[12] |
+      all_cells$Annotations == cells_types_pooled[19] |
+      all_cells$Annotations == cells_types_pooled[26] |
+      all_cells$Annotations == cells_types_pooled[28] |
+      all_cells$Annotations == cells_types_pooled[32] ))]))
+  }
+
+
+for(i in p){
+# remove the cells(rows) that we will not use -------------------------------
+  
+  assign(sprintf("ref%s", i),
+         eval(str2expression(sprintf("ref%s", i))) %>% 
+           filter(!(Annotations == cells_types_pooled[1] |
+                      Annotations == cells_types_pooled[4] |
+                      Annotations == cells_types_pooled[12] |
+                      Annotations == cells_types_pooled[26] |
+                      Annotations == cells_types_pooled[28] |
+                      Annotations == cells_types_pooled[32])))
+}
+
+
+
+
+for (i in p){
+  unwanted <- str2expression(sprintf("unwanted%s",i))
+  unwanted_col <- intersect(colnames(eval(
+    str2expression(sprintf("matrix_%s",i)))),unwanted)
+  
+  if (length(unwanted_col) != 0){
+    
+    assign(sprintf("matrix_%s",i), 
+           as.data.frame(eval(
+             str2expression(
+               sprintf("matrix_%s",i))))[, -which(colnames(
+                 eval(str2expression(sprintf("matrix_%s",i)))) %in% unwanted_col)])}
+  }
+
+
+matrix_1 <- as.data.frame(matrix_1)
+matrix_2 <- as.data.frame(matrix_2)
+matrix_3 <- as.data.frame(matrix_3)
+matrix_4 <- as.data.frame(matrix_4)
+matrix_5 <- as.data.frame(matrix_5)
+matrix_6 <- as.data.frame(matrix_6)
+matrix_7 <- as.data.frame(matrix_7)
+matrix_8 <- as.data.frame(matrix_8)
+
+setwd('./../4_RESULTS/')
+p = c(1,2,5,6,7)
+for(i in p){
+  
+  # compute CNA scores
+  assign(sprintf("cnv_obj_%s", i),inferCNV(data = eval(
+    str2expression(sprintf("matrix_%s",i))),
+    gene_pos = genomic_pos,
+    cutoff = 0.1, # 0.1 for 10x-genomics
+    reference_obs = eval(str2expression(sprintf("barcodes%s",i))),
+    window_size = 101,
+    out_path = "output_dir", 
+    noise_filter = NULL,
+    vis_bounds = "-1,1"))
+}
+
+
+# Human reference genome selected : grCH38 2022 --------------------------------
+
+# https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/cytoBand.txt.gz
+
+setwd("./../1_REF_DATA/")
+
+cytobands <- read.csv("cytoBand.txt", 
+                      sep = "",
+                      header = FALSE,
+                      stringsAsFactors = TRUE )
+
+## remove abnormal choromosomes ------------------------------------------------
+
+cytobands <- cytobands[!grepl("_", cytobands$V1, fixed = TRUE),]
+cytobands <- cytobands[!grepl("chrM", cytobands$V1, fixed = TRUE),]
+cytobands$V1 <- str_remove_all(cytobands$V1, "chr") 
+
+
+## replace X and Y chromosomes by numbers --------------------------------------
+
+cytobands$V1[cytobands$V1 == "X"] <- "23"
+cytobands$V1[cytobands$V1 == "Y"] <- "24"
+
+
+## change type of the chromosomes from strings to integers----------------------
+
+cytobands$V1 <- lapply(cytobands$V1, strtoi)
+
+
+## replace again X and Y -------------------------------------------------------
+
+cytobands$V1[cytobands$V1 == 23] <- "X"
+cytobands$V1[cytobands$V1 == 24] <- "Y"
+
+
+## rename columns so that it's more obvious when calling them-------------------
+
+colnames(cytobands)[4] <-  "cytoband"
+colnames(cytobands)[1] <-  "chromosome"
+
+
+genes <- c(rownames(genomic_pos))
+ref_genes<- data.frame(genes)
+
+# function that takes as input the chromosome number and start position 
+# of a gene and returns the cytoband -----
+
+## x : chromosome 
+## s : position of start 
+
+search_in_cytobandsref <- function(x, s){
+  c <- cytobands[which(cytobands$chromosome == x),]
+  for (i in 1:nrow(c)){
+    if (s >= c[i,2] &  s < c[i,3]){
+      return((c[i,4]))
+    }
+  }
+}
+
+## assign to each of the reference genes the cytoband on which it is located 
+
+assigned_cytoband <- list()
+
+for (i in 1:nrow(ref_genes)){
+  c <- search_in_cytobandsref(genomic_pos[ref_genes$genes[i],1], #chromosome
+                              genomic_pos[ref_genes$genes[i],2]) # start position
+  assigned_cytoband <- append(assigned_cytoband, droplevels(c[1]))
+}
+
+ref_genes$cytoband <- assigned_cytoband # add the cytobands variable
+
+ref_genes$chromosome <- 0
+ref_genes$chromosome <- genomic_pos$CHR[ref_genes$genes == rownames(genomic_pos)]
+
+# Compute median CNA score for each cytoband per spot -------------------------
+i = 1
+for (i in p){
+  
+  # add to the data frame a column with the information corresponding-----------
+  # to the cytoband
+  
+  cnv_df <- as.data.frame(eval(str2expression(sprintf("cnv_obj_%s",i)))$cnv_score_vis)
+  
+  # create cnv_cyt var : vector containing the cytobands in which each gene is  
+  #        chromosomes : vector containing the chromosomes in which each gene is  
+  
+  cnv_cyt <- c()
+  chromosomes <- c()
+  
+  for (j in 1:length(rownames(cnv_df))){
+    
+    cnv_cyt <- c(cnv_cyt, 
+                 as.character(ref_genes$cytoband[ref_genes$genes == 
+                                                   rownames(cnv_df)[j]]))
+    
+    chromosomes <- c(chromosomes, 
+                     ref_genes$chromosome[ref_genes$genes == 
+                                            rownames(cnv_df)[j]])
+  }
+  
+  cnv_df <- cbind(cnv_df,cnv_cyt)
+  
+  cnv_df <- cbind(cnv_df,chromosomes)
+  
+  # retrieving the colnames that are neither called cnv_cyt nor chromososmes 
+  # since we aggregate by those columns
+  
+  tmp <- colnames(cnv_df)[-which(colnames(cnv_df) == "cnv_cyt"
+                                 | colnames(cnv_df) == "chromosomes")]
+
+  # # aggregate the scores using median by the $cnv_cyt and $chromosomes columns
+  # 
+  cnv_df <- aggregate(x = cnv_df[, tmp],by = list(cnv_df$chromosomes, cnv_df$cnv_cyt),FUN = median)
+
+  # # rename the cnv_cyt and chromosomes columns since they are changes to 
+  # #group.x1 group.x2 after aggregation 
+  # 
+  colnames(cnv_df)[1:2]<- c("chromosomes", "cnv_cyt")
+  
+  # remove the counts corresponding to the chromosome Y
+  
+  assign(sprintf("cnv_df_%s",i), cnv_df[-c(which(cnv_df$chromosome == "Y")), ])
+  
+}
+
+
+
+df1 <- pivot_longer(data = cnv_df_1,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df2 <- pivot_longer(data = cnv_df_2,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df5 <- pivot_longer(data = cnv_df_5,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df6 <- pivot_longer(data = cnv_df_6,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+
+df7 <- pivot_longer(data = cnv_df_7,
+                    cols = -c("chromosomes", "cnv_cyt"), 
+                    names_to = "Barcode",
+                    values_to = "CNA_score")
+rm(all_cells, cnv_df, cnv_df_1,cnv_df_2,cnv_df_5, cnv_df_6, cnv_df_7, cnv_obj_1, cnv_obj_2,cnv_obj_5,cnv_obj_6, cnv_obj_7,matrix_1,matrix_2,matrix_3,matrix_4,matrix_5,matrix_6,matrix_7,matrix_8)
+df1 <- merge(df1, ref1, by = "Barcode", all =  TRUE)
+df2 <- merge(df2, ref2, by = "Barcode", all =  TRUE)
+df5 <- merge(df5, ref5, by = "Barcode", all =  TRUE)
+df6 <- merge(df6, ref6, by = "Barcode", all =  TRUE)
+df7 <- merge(df7, ref7, by = "Barcode", all =  TRUE)
+
+# MpBC1
+df1 <- df1[c(which(df1$Annotations == "Epithelial tumor cells" | 
+             df1$Annotations == "Mésenchymal tumor cells" |
+             df1$Annotations == "Non tumoral fibrous tissue")),]
+
+output <- ggplot(df1, aes(x = cnv_cyt, y = Barcode, fill = CNA_score)) + geom_raster() +
+  scale_fill_gradient2(low = "blue", high = "red", mid= "white", midpoint = 0) + 
+  ggtitle("Median CNA scores in cytobands, per cell type") + theme_bw() +theme(axis.text.x=element_blank(), 
+                                                                               axis.ticks.x=element_blank()) + geom_tile() + 
+  facet_grid(rows = vars(df1$Annotations),cols = vars(unlist(df1$chromosomes)), scales = "free",
+             space = "free") + theme(panel.spacing.x = unit(0,"line"))
+pdf(file = "InferCNV_MPBC1.pdf",width = 50, height = 150) 
+output
+dev.off()
+
+# MpBC2
+df2 <- df2[c(which(df2$Annotations == "Spindle surrounded by NST" | 
+                     df2$Annotations == "NST cells" |
+                     df2$Annotations == "NST surrounded by spindle")),]
+
+output <- ggplot(df2, aes(x = cnv_cyt, y = Barcode, fill = CNA_score)) + geom_raster() +
+  scale_fill_gradient2(low = "blue", high = "red", mid= "white", midpoint = 0) + 
+  ggtitle("Median CNA scores in cytobands, per cell type") + theme_bw() +theme(axis.text.x=element_blank(), 
+                                                                               axis.ticks.x=element_blank()) + geom_tile() + 
+  facet_grid(rows = vars(df2$Annotations),cols = vars(unlist(df2$chromosomes)), scales = "free",
+             space = "free") + theme(panel.spacing.x = unit(0,"line"))
+pdf(file = "InferCNV_MPBC2.pdf",width = 50, height = 150) 
+output
+dev.off()
+
+# MpBC5
+unique(df5$Annotations)
+df5 <- df5[c(which(df5$Annotations == "Spindle cell tumour" | 
+                     df5$Annotations == "Epithelial tumour")),]
+
+output <- ggplot(df5, aes(x = cnv_cyt, y = Barcode, fill = CNA_score)) + geom_raster() +
+  scale_fill_gradient2(low = "blue", high = "red", mid= "white", midpoint = 0) + 
+  ggtitle("Median CNA scores in cytobands, per cell type") + theme_bw() +theme(axis.text.x=element_blank(), 
+                                                                               axis.ticks.x=element_blank()) + geom_tile() + 
+  facet_grid(rows = vars(df5$Annotations),cols = vars(unlist(df5$chromosomes)), scales = "free",
+             space = "free") + theme(panel.spacing.x = unit(0,"line"))
+pdf(file = "InferCNV_MPBC5.pdf",width = 50, height = 150) 
+output
+dev.off()
+
+# MpBC6
+unique(df6$Annotations)
+df6 <- df6[c(which(df6$Annotations == "Spindle++ spindle" | 
+                     df6$Annotations == "Spindle- tumour")),]
+
+output <- ggplot(df6, aes(x = cnv_cyt, y = Barcode, fill = CNA_score)) + geom_raster() +
+  scale_fill_gradient2(low = "blue", high = "red", mid= "white", midpoint = 0) + 
+  ggtitle("Median CNA scores in cytobands, per cell type") + theme_bw() +theme(axis.text.x=element_blank(), 
+                                                                               axis.ticks.x=element_blank()) + geom_tile() + 
+  facet_grid(rows = vars(df6$Annotations),cols = vars(unlist(df6$chromosomes)), scales = "free",
+             space = "free") + theme(panel.spacing.x = unit(0,"line"))
+pdf(file = "InferCNV_MPBC6.pdf",width = 50, height = 150) 
+output
+dev.off()
+
+# MpBC7
+unique(df7$Annotations)
+df7 <- df7[c(which(df7$Annotations == " Classic spindle tumour" | 
+                     df7$Annotations == "Mixoid matrix-enriched spindle+ spindle")),]
+
+output <- ggplot(df7, aes(x = cnv_cyt, y = Barcode, fill = CNA_score)) + geom_raster() +
+  scale_fill_gradient2(low = "blue", high = "red", mid= "white", midpoint = 0) + 
+  ggtitle("Median CNA scores in cytobands, per cell type") + theme_bw() +theme(axis.text.x=element_blank(), 
+                                                                               axis.ticks.x=element_blank()) + geom_tile() + 
+  facet_grid(rows = vars(df7$Annotations),cols = vars(unlist(df7$chromosomes)), scales = "free",
+             space = "free") + theme(panel.spacing.x = unit(0,"line"))
+print(output)
+pdf(file = "InferCNV_MPBC7.pdf",width = 50, height = 150) 
+output
+dev.off()
+

@@ -1,0 +1,9 @@
+T test de tous les cytobandes d'un bras (d'un bras chromosomique) par rapport à tous les autres cytobandes
+FDR correction (pour tous les patients, et par patient)
+colores les 1p ou les 1q en rouge et tous les autres cytobandes en noir 
+
+
+pureté spot, séquençage quality, région ADN séquençé... ==> bruits
+MpBC14 choses intéressantes, ils vont loin dans leur couleurs
+MpBC15 en 6q (fin du 6)
+QUand il y a du bruit, forte couleurs extreme mais pas de différence avec les autres cellules
