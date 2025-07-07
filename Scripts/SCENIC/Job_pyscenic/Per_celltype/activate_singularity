@@ -1,0 +1,5 @@
+source /etc/profile
+command -v module
+which singularity
+singularity --version
+
