@@ -1,0 +1,34 @@
+\BOOKMARK [1][-]{section*.4}{Liste des abr\351viations}{}% 1
+\BOOKMARK [1][-]{section*.5}{Liste des logiciels utilis\351s}{}% 2
+\BOOKMARK [1][-]{section.1}{Introduction}{}% 3
+\BOOKMARK [2][-]{subsection.1.1}{Contexte et \351tat de l\220art}{section.1}% 4
+\BOOKMARK [2][-]{subsection.1.2}{Pr\351sentation des MpBC}{section.1}% 5
+\BOOKMARK [2][-]{subsection.1.3}{Probl\351matique\(s\)}{section.1}% 6
+\BOOKMARK [2][-]{subsection.1.4}{Pertinence de la transcriptomique spatiale}{section.1}% 7
+\BOOKMARK [1][-]{section.2}{Mat\351riels et m\351thodes}{}% 8
+\BOOKMARK [2][-]{subsection.2.1}{Echantillons MpBC}{section.2}% 9
+\BOOKMARK [3][-]{subsubsection.2.1.1}{Cohorte : CLB}{subsection.2.1}% 10
+\BOOKMARK [3][-]{subsubsection.2.1.2}{FFPE fixation et H\046E coloration }{subsection.2.1}% 11
+\BOOKMARK [3][-]{subsubsection.2.1.3}{S\351quen\347age Visium \046 alignement}{subsection.2.1}% 12
+\BOOKMARK [2][-]{subsection.2.2}{Annotation ph\351notypique des spots}{section.2}% 13
+\BOOKMARK [2][-]{subsection.2.3}{Donn\351es scRNA-seq}{section.2}% 14
+\BOOKMARK [3][-]{subsubsection.2.3.1}{Contr\364le qualit\351 et filtrage des spots}{subsection.2.3}% 15
+\BOOKMARK [3][-]{subsubsection.2.3.2}{Normalisation et Scaling}{subsection.2.3}% 16
+\BOOKMARK [2][-]{subsection.2.4}{Analyse des marqueurs ph\351notypiques}{section.2}% 17
+\BOOKMARK [3][-]{subsubsection.2.4.1}{Harmony}{subsection.2.4}% 18
+\BOOKMARK [3][-]{subsubsection.2.4.2}{Seurat}{subsection.2.4}% 19
+\BOOKMARK [2][-]{subsection.2.5}{Analyse des alt\351rations g\351n\351tiques}{section.2}% 20
+\BOOKMARK [3][-]{subsubsection.2.5.1}{InferCNVPlus}{subsection.2.5}% 21
+\BOOKMARK [3][-]{subsubsection.2.5.2}{D\351finition des alt\351rations g\351nomiques divergentes}{subsection.2.5}% 22
+\BOOKMARK [2][-]{subsection.2.6}{Software et packages}{section.2}% 23
+\BOOKMARK [3][-]{subsubsection.2.6.1}{RStudio et langage R}{subsection.2.6}% 24
+\BOOKMARK [1][-]{section.3}{R\351sultats}{}% 25
+\BOOKMARK [2][-]{subsection.3.1}{Analyse des marqueurs ph\351notypiques}{section.3}% 26
+\BOOKMARK [3][-]{subsubsection.3.1.1}{R\351duction de dimensionalit\351}{subsection.3.1}% 27
+\BOOKMARK [3][-]{subsubsection.3.1.2}{Clustering et enrichissement arch\351typal}{subsection.3.1}% 28
+\BOOKMARK [3][-]{subsubsection.3.1.3}{Identification des g\350nes marqueurs}{subsection.3.1}% 29
+\BOOKMARK [2][-]{subsection.3.2}{Analyse des alt\351rations g\351nomiques divergentes}{section.3}% 30
+\BOOKMARK [3][-]{subsubsection.3.2.1}{Profils g\351nomiques biphasiques}{subsection.3.2}% 31
+\BOOKMARK [3][-]{subsubsection.3.2.2}{Identification des alt\351rations divergentes entre compartiments appari\351s}{subsection.3.2}% 32
+\BOOKMARK [1][-]{section.4}{Discussion}{}% 33
+\BOOKMARK [1][-]{section.5}{Conclusions}{}% 34

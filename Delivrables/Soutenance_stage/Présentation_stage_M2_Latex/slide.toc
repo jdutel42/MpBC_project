@@ -1,0 +1,6 @@
+\beamer@sectionintoc {1}{Introduction}{2}{0}{1}
+\beamer@sectionintoc {2}{Results}{10}{0}{2}
+\beamer@subsectionintoc {2}{1}{Phenotypic markers analysis}{11}{0}{2}
+\beamer@subsectionintoc {2}{2}{Copy Number Alterations (CNA) analysis}{18}{0}{2}
+\beamer@sectionintoc {3}{Conclusions}{27}{0}{3}
+\beamer@sectionintoc {4}{Future Work}{29}{0}{4}

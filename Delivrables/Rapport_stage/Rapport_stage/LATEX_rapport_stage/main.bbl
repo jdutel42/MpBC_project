@@ -1,0 +1,179 @@
+\begin{thebibliography}{10}
+
+\bibitem{WHO1}
+{Organisation Mondiale de la Santé}.
+\newblock Cancer du sein.
+\newblock
+  \url{https://www.who.int/fr/news-room/fact-sheets/detail/breast-cancer},
+  2022.
+\newblock Consulté le 18 mai 2025.
+
+\bibitem{ACS_TNBC}
+{American Cancer Society}.
+\newblock Triple-negative breast cancer.
+\newblock
+  \url{https://www.cancer.org/cancer/breast-cancer/about/types-of-breast-cancer/triple-negative.html},
+  2023.
+\newblock Consulté le 18 mai 2025.
+
+\bibitem{Bianchini2016}
+Giampaolo Bianchini, Justin~M Balko, Ingrid~A Mayer, Melinda~E Sanders, and
+  Luca Gianni.
+\newblock Triple-negative breast cancer: challenges and solutions.
+\newblock {\em Nature Reviews Clinical Oncology}, 13(11):674--690, 2016.
+
+\bibitem{Coutant2023}
+A.~Coutant, V.~Cockenpot, L.~Muller, C.~Degletagne, R.~Pommier, L.~Tonon,
+  M.~Ardin, M.~C. Michallet, C.~Caux, M.~Laurent, A.~P. Morel, P.~Saintigny,
+  A.~Puisieux, M.~Ouzounova, and P.~Martinez.
+\newblock Spatial transcriptomics reveal pitfalls and opportunities for the
+  detection of rare high-plasticity breast cancer subtypes.
+\newblock {\em Laboratory Investigation}, 103(12):100258, 2023.
+\newblock Epub 2023 Oct 7.
+
+\bibitem{cancer.CA}
+{Société canadienne du cancer}.
+\newblock Grade et stade du cancer.
+\newblock
+  \url{https://cancer.ca/fr/cancer-information/what-is-cancer/stage-and-grade/grading},
+  2023.
+\newblock Consulté le 18 mai 2025.
+
+\bibitem{CNRS}
+{CNRS}.
+\newblock Est-ce qu’une division change les étapes de reprogrammation pour
+  une cellule ?
+\newblock
+  \url{https://www.insb.cnrs.fr/fr/cnrsinfo/est-ce-quune-division-change-les-etapes-de-reprogrammation-pour-une-cellule},
+  2024.
+\newblock Consulté le 18 mai 2025.
+
+\bibitem{PGEB}
+{Centre Léon Bérard}.
+\newblock Le centre de ressources biologiques du clb.
+\newblock
+  \url{https://www.centreleonberard.fr/professionnel-de-sante-chercheur/recherche-contre-le-cancer/recherche-translationnelle/le-centre-de-ressources-biologiques},
+  2024.
+\newblock Consulté le 18 mai 2025.
+
+\bibitem{UMI}
+Illumina.
+\newblock Unique molecular identifiers (umis).
+\newblock
+  \url{https://www.illumina.com/techniques/sequencing/ngs-library-prep/multiplexing/unique-molecular-identifiers.html},
+  2023.
+\newblock Consulté le 18 mai 2025.
+
+\bibitem{10xSpatialIntro}
+Leidamarie Tirado-Lee.
+\newblock Spatially resolved transcriptomics: An introductory overview of
+  spatial gene expression profiling methods.
+\newblock
+  \url{https://www.10xgenomics.com/blog/spatially-resolved-transcriptomics-an-introductory-overview-of-spatial-gene-expression-profiling-methods},
+  2023.
+\newblock Consulté le 18 mai 2025.
+
+\bibitem{SpaceRanger2}
+{10x Genomics}.
+\newblock Space ranger software (version 2.0.0).
+\newblock \url{https://www.10xgenomics.com/products/spatial-gene-expression},
+  2023.
+\newblock Consulté le 18 mai 2025.
+
+\bibitem{LoupeBrowser812}
+{10x Genomics}.
+\newblock Loupe browser software (version 8.1.2).
+\newblock \url{https://www.10xgenomics.com/products/loupe-browser}, 2024.
+\newblock Consulté le 18 mai 2025.
+
+\bibitem{Seurat510}
+Yuhan Hao, Stephanie Hao, Erica Andersen-Nissen, William~M. Mauck, S.~Zheng,
+  Andrew Butler, M.~J. Lee, Aaron~J. Wilk, Chloe Darby, Michael Zager, Paul
+  Hoffman, Marlon Stoeckius, Efthymia Papalexi, Eleni Mimitou, and Rahul
+  Satija.
+\newblock Integrated analysis of multimodal single-cell data.
+\newblock \url{https://satijalab.org/seurat/}, 2021.
+\newblock Seurat R package, version 5.1.0, consulté le 18 mai 2025.
+
+\bibitem{Korsunsky2019}
+Ilya Korsunsky, Nathan Millard, Jian Fan, Kamil Slowikowski, Fan Zhang, Kevin
+  Wei, Yury Baglaenko, Michael Brenner, Po-Ru Loh, and Soumya Raychaudhuri.
+\newblock Fast, sensitive and accurate integration of single-cell data with
+  harmony.
+\newblock {\em Nature Methods}, 16:1289--1296, 2019.
+\newblock Package R Harmony, version 1.2.3, consulté le 18 mai 2025.
+
+\bibitem{infercnvPlus}
+Charlene Zhang.
+\newblock infercnvplus: Enhanced 'infercnv' package.
+\newblock \url{https://github.com/CharleneZ95/infercnvPlus}, 2020.
+\newblock Consulté le 18 mai 2025.
+
+\bibitem{infercnv}
+{Broad Institute}.
+\newblock infercnv of the trinity ctat project.
+\newblock \url{https://github.com/broadinstitute/infercnv}, 2024.
+\newblock Consulté le 18 mai 2025, version stable recommandée par le dépôt.
+
+\bibitem{UCSCGRCh38}
+{UCSC Genome Browser}.
+\newblock Ucsc genome browser: Human genome assembly grch38/hg38.
+\newblock \url{https://genome.ucsc.edu/cgi-bin/hgGateway?db=hg38}, 2013.
+\newblock Consulté le 18 mai 2025.
+
+\bibitem{Suter2011}
+David~M. Suter, Nacho Molina, Damien Gatfield, Kim Schneider, Ueli Schibler,
+  and Felix Naef.
+\newblock Mammalian genes are transcribed with widely different bursting
+  kinetics.
+\newblock {\em Science}, 332(6028):472--474, 2011.
+
+\bibitem{RStudio2024}
+RStudio Team.
+\newblock Rstudio: Integrated development environment for r (version
+  2024.09.0+375 "cranberry hibiscus").
+\newblock \url{https://posit.co/download/rstudio-desktop/}, 2024.
+\newblock Consulté le 18 mai 2025.
+
+\bibitem{McInnes2018UMAP}
+Leland McInnes, John Healy, and James Melville.
+\newblock Umap: Uniform manifold approximation and projection for dimension
+  reduction.
+\newblock {\em arXiv preprint arXiv:1802.03426}, 2018.
+
+\bibitem{Cable2022}
+D.~M. Cable, E.~Murray, L.~S. Zou, J.~Goeva, X.~Macosko, E.~Irizarry, P.~A.
+  Kharchenko, and E.~Z. Macosko.
+\newblock Robust decomposition of cell type mixtures in spatial
+  transcriptomics.
+\newblock {\em Nature Biotechnology}, 40:517--526, 2022.
+
+\bibitem{bergonie}
+{BRIC Bordeaux}.
+\newblock Prix ruban rose avenir – dr monica arnedos, team 7 (bric).
+\newblock
+  \url{https://www.bricbordeaux.com/en/2025/02/prix-ruban-rose-avenir-dr-monica-arnedos-team-7-bric/},
+  2025.
+\newblock Consulté le 18 mai 2025.
+
+\bibitem{Aibar2017SCENIC}
+S.~Aibar, C.~González-Blas, T.~Moerman, V.~Imrichova, G.~Hulselmans,
+  F.~Rambow, J.-C. Marine, P.~Geurts, J.~Aerts, J.~van~den Oord, Z.~Kalender
+  Atak, and S.~Aerts.
+\newblock Scenic: single-cell regulatory network inference and clustering.
+\newblock {\em Nature Methods}, 14:1083--1086, 2017.
+
+\bibitem{Gronbaek2007Epigenetic}
+K.~Grønbaek, C.~Hother, and P.A. Jones.
+\newblock Epigenetic changes in cancer.
+\newblock {\em APMIS}, 115(10):1039--1059, October 2007.
+
+\bibitem{fondationarc2020caf}
+{Fondation ARC pour la recherche sur le cancer}.
+\newblock Les caf, cellules incontournables de l’environnement tumoral.
+\newblock
+  \url{https://www.fondation-arc.org/actualites/2020/les-caf-cellules-incontournables-de-lenvironnement-tumoral},
+  2020.
+\newblock Consulté le 30 mai 2025.
+
+\end{thebibliography}
