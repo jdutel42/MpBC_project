@@ -1,0 +1,26 @@
+- Est ce qu'on a remarqué que la présence d'un sous-type particulier était associé à une plus forte mortalité ? 
+Est ce que les MpBC mixed sont plus mortel que les purs (1 sous-types) ?
+
+Peu de patientes, difficile d'avoir des infos cohérentes, pas assez de puissance dans les modeles stat
+
+- Un carcinome pur épithélial tumoral n'est pas forcement un MpBC ?
+Il existe des MpBC non TNBC (10%) ?
+Y en a t il dans notre jeu de données ?
+
+seuil RECEPTEUR EXPRIMÉ HER2 par exemple
+La classification est pas forcement claire
+Difficile de répondre
+
+- Avec une approche Whole Exome Sequencing (WES) on ne peut pas identifier les réarrangements chromosomiques et les mutations dans des éléments cis-régulateurs des gènes ?
+
+
+- Les 3 théories
+Nous nos données ne permettent pas de savoir si on a :
+	- une cellule souche tumorale à l'origine des cellules des 2 compartiments
+	- une cellule épi tum qui fait de l'EMT pour donner des compartiments sarcomateux 
+
+cellule souche tum pas pertinent complliqué , 
+
+
+
+MpBC pas unnfacteur de transdiff

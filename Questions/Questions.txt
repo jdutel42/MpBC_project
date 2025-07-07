@@ -1,0 +1,85 @@
+	Dysplasie fréquent dans les autres type de cancers ?
+
+organisation du tissue = dysplasie
+Métaplasie = MpBC cellule qui rien a faire là 
+
+
+
+
+	1- La microdissection est une étape obligatoire pour l'analyse du méthylome ? 
+	On dissèque une région où il n'y a que des cellules d'un types cellulaires ?
+	Microdisséction de chaque type cellualaires pour extraction ADN ou ARN ?
+	Si ARN, en quoi ce sera différent de l'analyse spatiale ? Annoté les spot c'est comme faire de la microdissection...
+
+Microdissèque pour isoler physiquement pour savoir le type cellulaire
+ADN extrait
+Oui extraire de l'ARN revient à faire du Visium 
+
+
+
+	2- Comme les compartiments transdifférenciés proviennent de l'épithélium, est ce que on considère les cellules épithéliales dans les echantillons MpBC comme des cellules transdifférenciés ou pas ?
+	C'est plutot la cellules cancéreuse de base, la référence avant la transdiférenciation ?
+	C'est faux de dire : Des cellules tumorales épithéliales sont un sous-type transdifférenciées 
+	2bis- Dans nos figures de CNA, ce n'est pas vraiment le génome que l'on voit, c'est l'exome car Visium = data transcripto. On séquence des ARN épissés ?
+
+
+Pas de transdifférenciation épithéliales, c'est la cellules de base (supposé pas prouvé)
+Tous les cancers du sein ne proviennent pas en général celules épithéliales mais ca peut provenir de fibroblastes
+probes 18000 gènes hybrident les ARN, verif les FFPE-visium
+Analyse génomique 
+
+
+
+	3- Est ce que on a des attentes connues sur le profil transcriptomiques des spindle ?
+	Plutôt proche des épiT (c'est leur origine de transDiff) ou proche des Mes/CAF (tellement trandiff que preque plus rien d'épiT) ?
+
+Aucun a priori
+Plus rien d'épithéliales, 
+
+
+
+	4- La déconvolution ne marche par pour les spots annotés spindle (car RCTD attribue ça majoritairement à des CAF).
+	Est ce que on a essayé pour les autres sous-types ? Ca marche pour les autres ?
+
+Ca ne marche pas non plus car pas de references
+
+
+
+
+	5- Réexpliquer la création de l'atlas, et étapes.
+		1) Single nuclei RNA-seq
+			On aura pour chaque barcode/noyau/"cellule" le profil d'expression transcripto
+		2) Analyse et Clustering Seurat
+			On aura des clusters de cellules qui représenteront les différents types cellulaires dans nos échantillons (regroupement par profil transcripto similaire)
+			(EpiTum, MesTum, Chondoid, OsteoSarc, Spindle, MesNorm, EpiNorm, Immune....)
+		3) Attribution du types cellulaires à chaque clusters
+			On trouve des marqueurs/gènes spécifiques de chaque clusters et on dit ça c'est de l'EpiTum, Spindle...
+				(Mais ça veut dire qu'il faut déjà quelques a priori sur les marqueurs de ces sous-types ???)
+				
+Marqueurs tres spécifiques, 
+La definition des clusters se fait pas l'algo de Seurat, mais l'annotation c'est ou nous on va intervenir avec l'aide des clusters visium
+				
+				
+				
+		4) Création d'une SIGNATURE TRANSCRIPTOMIQUE pour chaque type cellulaire = ATLAS
+			Pour chaque cluster, on fait la moyenne/mediane du profil transcripto de toutes les cellules
+			==> On aura pour chaque type cellulaire, un profil d'expression transcriptomique, UNE SIGNATURE
+			
+			
+Spécifique
+ATLAS on spécifie des cellulules et les annotations, pas un signal transcriptomique)
+
+
+
+		5) Déconvolution des spots Visium
+			Selon le profil transcriptomique de chaque spot, estimer la proportion de chaque types cellulaires par spot.
+				Spot 1 : 60% signature EpiTum, 30% signature MesNorm, 10% signature Immune
+				Spot 2 : ...etc
+				
+				
+		6) Identification des marqueurs d’expression et voies de signalisation spécifiques de chaque sous-type
+		
+		
+		
+		
+
