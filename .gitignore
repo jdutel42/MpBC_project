@@ -1,6 +1,7 @@
-*.sif
-*.exe
-*.AppImage
-*.deb
-*.feather
+Logiciels/SCENIC/*.sif
+Jordan/Logiciel/Loupe_Browser/*.exe
+Jordan/Logiciel/InkScape/*.AppImage
+Jordan/Logiciel/RStudio/*.deb
+Jordan/Logiciels/SCENIC/*.feather
+Jordan/Logiciels/SCENIC/*.tbl
 Results/
