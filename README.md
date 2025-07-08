@@ -52,6 +52,7 @@ Ce projet demande d'être à l’aise avec :
 
 ## Organisation du Dépôt - Arborescence du projet
 
+```
 📁 **Jordan**
 ├── 📁 Data
 │   ├── Annotations
@@ -128,9 +129,7 @@ Ce projet demande d'être à l’aise avec :
 	     ├── Actual # Pipeline d'analyse Seurat des matrice d'expression Visium
 	     ├── Old # Vieux script (peu fiables)
 	     └── Tests # Scripts d'essais pour faire fonctionner Seurat et analyses complémentaires
-
-71 directories, 34 files
-
+```
 
 ## Contribution et Contact
 
