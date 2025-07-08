@@ -1,59 +1,5 @@
-# Stage M2 : Transcriptomique spatiale et évolution des tumeurs mammaires rares
-
-Bienvenue dans ce dépôt dédié au stage de Master 2 portant sur la transcriptomique spatiale et l’évolution des tumeurs mammaires rares. Ce projet, encadré par **Pierre Martinez**, se déroule au Centre de Recherche en Cancérologie de Lyon. Vous trouverez ci-dessous toutes les informations essentielles concernant le stage.
-
----
-
-## Contexte et Objectifs
-
-### Contexte
-Certaines tumeurs du sein présentent une transdifférenciation où les cellules épithéliales d’origine deviennent mésenchymateuses. Ces formes rares (1-3%) demeurent mal comprises et mal prises en charge en clinique. La plasticité cellulaire représente également un défi thérapeutique majeur.
-
-### Objectifs du Stage
-Le projet de stage vise à :
-- **Identifier les gènes et pathways** impliqués dans la transdifférenciation.
-- **Analyser les différences** génomiques et micro-environnementales entre les compartiments épithéliaux et mésenchymateux.
-- **Déterminer des marqueurs spécifiques** des cellules tumorales mésenchymateuses.
-
-Les analyses se baseront sur des données issues de coupes d’échantillons, avec notamment l’utilisation de la technologie Visium de 10X Genomics.
-
----
-
-## Compétences Requises
-
-Ce projet demande d'être à l’aise avec :
-- Le **langage R** et les environnements **UNIX/Linux**.
-- Les notions de **biologie** et de **statistique**.
-- Les analyses en **analyse RNA-seq**.
-
----
-
-## Informations Pratiques
-
-- **Encadrement :** Pierre Martinez (bioinformaticien, Inserm) – [pierre.martinez@lyon.unicancer.fr](mailto:pierre.martinez@lyon.unicancer.fr)
-- **Lieu :** Centre de Recherche en Cancérologie de Lyon, Cheney D 2e étage.
-- **Site web du responsable :** [https://pierremartinez.github.io/](https://pierremartinez.github.io/)
-
----
-
-## Références Bibliographiques
-
-1. **McCart Reed et al. (2019)**  
-   *Phenotypic and molecular dissection of metaplastic breast cancer and the prognostic implications.*
-2. **Prat et al. (2010)**  
-   *Phenotypic and molecular characterization of the claudin-low intrinsic subtype of breast cancer.*
-3. **Black & McGranahan (2021)**  
-   *Genetic and non-genetic clonal diversity in cancer evolution.*
-4. **Coutant et al. (2023)**  
-   *Spatial transcriptomics reveal pitfalls and opportunities for the detection of rare high-plasticity breast cancer subtypes.*  
-   [DOI](https://doi.org/10.1016/j.labinv.2023.100258)
-
----
-
-## Organisation du Dépôt - Arborescence du projet
-
-📁 **Jordan**
-├── 📁 Data
+Jordan
+├── Data
 │   ├── Annotations
 │   │   ├── Anciennes annotations # Annotation détaillé des spots Visium
 │   │   ├── Marqueurs # Marqueurs moléculaires utilisés pour l'annotation
@@ -69,7 +15,7 @@ Ce projet demande d'être à l’aise avec :
 │       ├── CellType_matrix # Matrice d'expression Visium par type cellulaire (SCENIC)
 │       ├── MpBC1... # Matrice d'expression brute Visium de 1 à 16 
 │       └── Samples_Infos # Informations de qualité séquençage des matrice d'expression brutes Visium
-├── 📁 Logiciels # Repertoire des logiciels et outils utilisés
+├── Logiciels # Repertoire des logiciels et outils utilisés
 │   ├── Case_Viewer
 │   ├── GitHub
 │   ├── Gnomic
@@ -82,7 +28,7 @@ Ce projet demande d'être à l’aise avec :
 │       ├── hg38_*.feather # Base de données pour la recherche de motif des TF dans les promoteurs gène
 │       ├── motifs-v10nr_clust-nr.hgnc-m0.001-o0.0.tbl # Fichier repertoriant les motif de chaque TF
 │       └── pyscenic.yml # Environnement COnda pour faire fonctionner la pipeline pyscenic
-├── 📁 Results
+├── Results
 │   ├── CNA
 │   │   └── InferCNVPlus # Ensemble des figures généré avec l'analyse InferCNVPlus
 │   ├── SCENIC
@@ -107,7 +53,7 @@ Ce projet demande d'être à l’aise avec :
 │   │   │           ...
 │   │   └── Outputs_per_MpBC # Résultats de l'analyse SCENIC initiale portant sur les patients individuellement (plutot que le type cellulaire)
 │   └── Seurat # Ensemble des figures généré avec l'analyse Seurat pour les données Visium
-└── 📁 Scripts
+└── Scripts
     ├── CNA_Project
     │   ├── InferCNVplus 
     │   │   ├── IronHeart_v4 # Script principal et complet pour faire l'analyse des CNA par cytobande avec InferCNVPlus (peut faire appel à des données générés avec le script IronHeart_v3)
@@ -125,13 +71,8 @@ Ce projet demande d'être à l’aise avec :
     │   │   └── RSS_per_MpBC.py # Génère les RSS plot et calcul les régulons les plus spécifiques à chaque type cellulaire (ne marche qu'avec l'analyse SCENIC par patient)
     │   └── Tutorial_pyscenic
     └── Spatial_transcripto_Project
-	     ├── Actual # Pipeline d'analyse Seurat des matrice d'expression Visium
-	     ├── Old # Vieux script (peu fiables)
-	     └── Tests # Scripts d'essais pour faire fonctionner Seurat et analyses complémentaires
+	├── Actual # Pipeline d'analyse Seurat des matrice d'expression Visium
+	├── Old # Vieux script (peu fiables)
+	└── Tests # Scripts d'essais pour faire fonctionner Seurat et analyses complémentaires
 
 71 directories, 34 files
-
-
-## Contribution et Contact
-
-Pour toute question ou suggestion, n’hésitez pas à contacter Pierre Martinez à l’adresse pierre.martinez@lyon.unicancer.fr ou Jordan Dutel : jordan.dutel@lyon.unicancer.fr
