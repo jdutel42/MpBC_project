@@ -124,4 +124,4 @@ Les analyses se baseront sur des données issues de coupes d’échantillons, av
 
 ## Contribution et Contact
 
-Pour toute question ou suggestion, n’hésitez pas à contacter Pierre Martinez à l’adresse pierre.martinez@lyon.unicancer.fr ou Jordan Dutel : jordan.dutel@lyon.unicancer.fr
+Pour toute question ou suggestion, n’hésitez pas à contacter Pierre Martinez à l’adresse pierre.martinez@lyon.unicancer.fr ou Jordan Dutel : jordan.dutel@etu.univ-lyon1.fr
