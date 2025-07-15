@@ -1,7 +1,7 @@
 # Stage M2 : Transcriptomique spatiale et évolution des tumeurs mammaires rares
 
 Bienvenue dans ce dépôt dédié au stage de Master 2 portant sur la transcriptomique spatiale et l’évolution des tumeurs mammaires rares. Ce projet, encadré par **Dr Pierre Martinez**, se déroule au Centre de Recherche en Cancérologie de Lyon. Vous trouverez ci-dessous toutes les informations essentielles concernant le stage.
-[Sujet_de_stage_M2](/Sujet_stage_M2.pdf)
+[Sujet_de_stage_M2](/Adminstratif/Stage_M2/Sujet_stage_M2.pdf)
 
 ---
 
@@ -17,6 +17,21 @@ Le projet de stage vise à :
 - **Déterminer des marqueurs spécifiques** des cellules tumorales mésenchymateuses.
 
 Les analyses se baseront sur des données issues de coupes d’échantillons, avec notamment l’utilisation de la technologie Visium de 10X Genomics.
+
+---
+
+## Travail réalisé
+
+### Rapport et soutenance
+
+Voici le rapport et soutenances de stage compilant les résultats principaux obtenus lors de mes analyses
+[Rapport_de_stage](/Delivrables/Rapport_stage/Rapport_stage/Final/M2_MEMOIRE_Dutel_Jordan_2024_2025.pdf)
+[Soutenance_de_stage](/Delivrables/Soutenance_stage/Final/M2_SOUTENANCE_Dutel_Jordan_2024_2025.pdf)
+
+### Analyses complémentaires
+
+Voici le rapport d'une analyse complémentaire via le logiciel SCENIC afin d'identifier les réseaus de régulations de gènes selon les différents sous-types tumoraux des MpBC.
+[Rapport_SCENIC](/Delivrables/Point_avec_Pierre/SCENIC/SCENIC_report-1.pdf)
 
 ---
 
