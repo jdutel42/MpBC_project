@@ -19,15 +19,6 @@ Les analyses se baseront sur des données issues de coupes d’échantillons, av
 
 ---
 
-## Compétences Requises
-
-Ce projet demande d'être à l’aise avec :
-- Le **langage R** et les environnements **UNIX/Linux**.
-- Les notions de **biologie** et de **statistique**.
-- Les analyses en **analyse RNA-seq**.
-
----
-
 ## Informations Pratiques
 
 - **Encadrement :** Dr Pierre Martinez (bioinformaticien, Inserm) – [pierre.martinez@lyon.unicancer.fr](mailto:pierre.martinez@lyon.unicancer.fr)
