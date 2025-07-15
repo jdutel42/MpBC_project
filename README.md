@@ -1,6 +1,6 @@
 # Stage M2 : Transcriptomique spatiale et évolution des tumeurs mammaires rares
 
-Bienvenue dans ce dépôt dédié au stage de Master 2 portant sur la transcriptomique spatiale et l’évolution des tumeurs mammaires rares. Ce projet, encadré par **Pierre Martinez**, se déroule au Centre de Recherche en Cancérologie de Lyon. Vous trouverez ci-dessous toutes les informations essentielles concernant le stage.
+Bienvenue dans ce dépôt dédié au stage de Master 2 portant sur la transcriptomique spatiale et l’évolution des tumeurs mammaires rares. Ce projet, encadré par **Dr Pierre Martinez**, se déroule au Centre de Recherche en Cancérologie de Lyon. Vous trouverez ci-dessous toutes les informations essentielles concernant le stage.
 
 ---
 
@@ -30,9 +30,9 @@ Ce projet demande d'être à l’aise avec :
 
 ## Informations Pratiques
 
-- **Encadrement :** Pierre Martinez (bioinformaticien, Inserm) – [pierre.martinez@lyon.unicancer.fr](mailto:pierre.martinez@lyon.unicancer.fr)
+- **Encadrement :** Dr Pierre Martinez (bioinformaticien, Inserm) – [pierre.martinez@lyon.unicancer.fr](mailto:pierre.martinez@lyon.unicancer.fr)
 - **Lieu :** Centre de Recherche en Cancérologie de Lyon, Cheney D 2e étage.
-- **Site web du responsable :** [https://pierremartinez.github.io/](https://pierremartinez.github.io/)
+- **GitGub de l'encadrant :** [https://pierremartinez.github.io/](https://pierremartinez.github.io/)
 
 ---
 
