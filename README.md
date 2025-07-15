@@ -24,14 +24,14 @@ Les analyses se baseront sur des données issues de coupes d’échantillons, av
 
 ### Rapport et soutenance
 
-Voici le rapport et soutenances de stage compilant les résultats principaux obtenus lors de mes analyses
-[Rapport_de_stage](/Delivrables/Rapport_stage/Rapport_stage/Final/M2_MEMOIRE_Dutel_Jordan_2024_2025.pdf)
-[Soutenance_de_stage](/Delivrables/Soutenance_stage/Final/M2_SOUTENANCE_Dutel_Jordan_2024_2025.pdf)
+Voici le rapport et soutenance de stage compilant les résultats principaux obtenus lors de mes analyses :
+- [Rapport_de_stage](/Delivrables/Rapport_stage/Rapport_stage/Final/M2_MEMOIRE_Dutel_Jordan_2024_2025.pdf)
+- [Soutenance_de_stage](/Delivrables/Soutenance_stage/Final/M2_SOUTENANCE_Dutel_Jordan_2024_2025.pdf)
 
 ### Analyses complémentaires
 
-Voici le rapport d'une analyse complémentaire via le logiciel SCENIC afin d'identifier les réseaus de régulations de gènes selon les différents sous-types tumoraux des MpBC.
-[Rapport_SCENIC](/Delivrables/Point_avec_Pierre/SCENIC/SCENIC_report-1.pdf)
+Voici le rapport d'une analyse complémentaire via le logiciel SCENIC afin d'identifier les réseaux de régulation transcriptionnelle selon les différents sous-types tumoraux au sein des MpBC :
+- [Rapport_SCENIC](/Delivrables/Point_avec_Pierre/SCENIC/SCENIC_report-1.pdf)
 
 ---
 
