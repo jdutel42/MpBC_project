@@ -74,5 +74,3 @@ Jordan
 	├── Actual # Pipeline d'analyse Seurat des matrice d'expression Visium
 	├── Old # Vieux script (peu fiables)
 	└── Tests # Scripts d'essais pour faire fonctionner Seurat et analyses complémentaires
-
-71 directories, 34 files
